@@ -8,5 +8,9 @@ dependencies = ["pyyaml", "numpy", "PyQt5==5.15.11"]
 [project.optional-dependencies]
 dev = ["pytest"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
 [tool.setuptools.packages.find]
 include = ["ddmi*"]

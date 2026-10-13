@@ -6,13 +6,15 @@ flow (ddmi/flow.py on top of ddmi/sim or the hardware drivers).
 """
 from __future__ import annotations
 
-import math
 import os
 import random
 import threading
 
 from PyQt5.QtCore import QThread, pyqtSignal
 
+from ..calc.fit import two_point_fit
+from ..calc.tops import tops_setpoint
+from ..calc.units import dbm_to_lin as lin, lin_to_dbm as dbm
 from . import params
 
 SPEED = float(os.environ.get("DDMI_SIM_SPEED", "1.0"))
@@ -24,19 +26,6 @@ class Aborted(Exception):
 
 class StopTest(Exception):
     pass
-
-
-def lin(dbm: float) -> int:
-    return round(10 ** (dbm / 10) * 10000)
-
-
-def dbm(linear: float) -> float:
-    return 10 * math.log10(max(linear, 1e-3) / 10000)
-
-
-def fit(x1, y1, x2, y2):
-    slope = (y2 - y1) / (x2 - x1)
-    return slope, y1 - slope * x1
 
 
 class _Worker(QThread):
@@ -124,7 +113,7 @@ class SimWorker(_Worker):
             valley = rng.uniform(1.7, 2.1)
             peak = valley - rng.uniform(0.9, 1.1)
             txmon, mpd_out = rng.randint(1700, 2000), rng.randint(2850, 3050)
-            setpoint = round(txmon / mpd_out * 1000)
+            setpoint = tops_setpoint(txmon, mpd_out)
             self.say(f"CH{ch}: peak {peak:.2f} V, valley {valley:.2f} V, "
                      f"TXMON {txmon} / MPD_OUT {mpd_out} -> tops_setpoint {setpoint}")
             self.put("Tops_Setpoint", ch, setpoint)
@@ -154,7 +143,7 @@ class SimWorker(_Worker):
                          f"{self.tx_loss[ch - 1]:.2f} -> y {y}, TXMON {x}")
         for ch in chans:
             (x1, y1), (x2, y2) = points[ch]
-            slope, offset = fit(x1, y1, x2, y2)
+            slope, offset = two_point_fit((x1, y1), (x2, y2))
             points[ch] = (slope, offset)
             self.put("Txp_Slope", ch, round(slope, 4))
             self.put("Txp_Offset", ch, round(offset, 1))
@@ -186,7 +175,7 @@ class SimWorker(_Worker):
                     self.put(f"RSSI@{point}", ch, value)
                 self.wait_s(0.3)
         for ch in chans:
-            slope, offset = fit(rssi[ch][0], lin(-2), rssi[ch][1], lin(-10))
+            slope, offset = two_point_fit((rssi[ch][0], lin(-2)), (rssi[ch][1], lin(-10)))
             self.put("Rxp_Slope", ch, round(slope, 5))
             self.put("Rxp_Offset", ch, round(offset, 1))
         self.say("W_DRXPCal written. RX check at -6 dBm")
@@ -209,7 +198,7 @@ class SimWorker(_Worker):
             adc.append((code, got * 10000))
             self.say(f"VCC {target:.2f} V -> achieved {got:.3f} V, R_VCCADC {code}")
             self.wait_s(0.9)
-        slope, offset = fit(adc[0][0], adc[0][1], adc[1][0], adc[1][1])
+        slope, offset = two_point_fit(adc[0], adc[1])
         self.put("Vcc_Slope", 0, round(slope, 4))
         self.put("Vcc_Offset", 0, round(offset, 1))
         self.say("W_VccCal written. Lock: W_Nomal_AWS = 0, W_Mission_AWS = 0")

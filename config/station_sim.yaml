@@ -1,0 +1,11 @@
+station_name: 800G_DDMI_Cal-Left
+dry_run: false
+allow_unverified_writes: false     # must stay false on real modules
+i2c: {type: sim}
+power_supply: {type: sim}
+power_meter: {type: sim}
+opt_switch: {type: sim}
+attenuator: {type: sim, units: 2}  # CH1-4 on unit 1, CH5-8 on unit 2 (V6.8 uses two OVA refs)
+tx_loss_file: station_data/system_Data.ini
+rx_table_dir: station_data/rx_tables
+results_dir: results

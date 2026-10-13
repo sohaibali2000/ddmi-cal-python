@@ -1,0 +1,13 @@
+# Real instruments. Types and addresses are placeholders: fill in at the lab
+# (build map open question 6). No hardware driver exists yet.
+station_name: 800G_DDMI_Cal-Left
+dry_run: true                      # keep true until the unverified registers are confirmed
+allow_unverified_writes: false     # must stay false on real modules
+i2c: {type: ch341}
+power_supply: {type: gwps320x, resource: "COM5"}
+power_meter: {type: wg3028, resource: ""}
+opt_switch: {type: none}
+attenuator: {type: st_optatt, units: 2, resource: ""}
+tx_loss_file: station_data/system_Data.ini
+rx_table_dir: station_data/rx_tables
+results_dir: results

@@ -1,8 +1,9 @@
 """Result rows, limits and equipment list shown by the UI.
 
-Limits are the placeholders from the build map (Section 4.1); the MES spec
-replaces them once the real MES client exists.
+Limits come from config/product_aws_2xfr4.yaml (placeholders until the MES
+spec replaces them). The RX slope limit is not applied: its units are unverified.
 """
+from ..config import load_product
 
 CHANNELS = 8
 MAX_SLOTS = 4
@@ -32,14 +33,15 @@ DDMI_ROWS = [
 GROUPS = [("TX", TX_ROWS), ("RX", RX_ROWS), ("DDMI", DDMI_ROWS)]
 MODULE_LEVEL = set(DDMI_ROWS)
 
+_limits = load_product()["limits"]
 LIMITS = {
-    "Tx_Disable(dBm)": (-60.0, -16.0),
-    "dTxP(dB)": (-0.5, 0.5),
-    "dRxP(dB)": (-0.5, 0.5),
-    "dVcc(V)": (-0.033, 0.033),
-    "DDMI_Temp(C)": (30.0, 60.0),
+    "Tx_Disable(dBm)": tuple(_limits["tx_disable_dbm"]),
+    "dTxP(dB)": tuple(_limits["dtxp_db"]),
+    "dRxP(dB)": tuple(_limits["rx_check_error_db"]),
+    "dVcc(V)": tuple(_limits["dvcc_v"]),
+    "DDMI_Temp(C)": tuple(_limits["ddmi_temp_c"]),
 }
-TX_LOSS_WARN_DB = 3.5
+TX_LOSS_WARN_DB = _limits["tx_loss_warn_db"]
 
 # key, label, models (from the LabVIEW driver VIs in the V6.8 project)
 EQUIPMENT = [

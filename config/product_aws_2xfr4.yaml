@@ -1,0 +1,48 @@
+# Product settings for AWS 800G 2xFR4 at DDMI Cal (LabVIEW V6.8).
+# Items marked VERIFY are decoded but unconfirmed; do not hard-code them.
+customer: AWS
+channels: 8
+lasers: 4                          # lane n and n+4 share laser n
+
+mpd_scan:
+  vtops_start: 0.5                 # V (Acacia 0.0-2.0/0.01; others 0.0-1.5/0.02)
+  vtops_stop: 3.0
+  vtops_step: 0.02
+  op_point_fractions: [0.65, 0.56, 0.50, 0.44]   # VERIFY meaning (build map 6.5)
+  # VERIFY: how Peak Search.vi turns a fraction into a TXMON level. One of
+  # x_of_peak, one_minus_x_of_peak, x_of_span, one_minus_x_of_span.
+  op_point_mode: x_of_peak
+  tops_mid_from: [0.50, 0.44]      # Tops_Mid = mean of these two voltages
+  setpoint_scale: 1000             # tops_setpoint = round(TXMON / MPD_OUT * 1000)
+  scan_attempts: 1                 # V12: 2 attempts, up to 2 scans each
+
+tx_disable:
+  step_v: 0.01
+  max_steps: 4
+  extra_steps_if_above_dbm: null   # V12: -18 dBm -> 5 more steps
+  limit_dbm: [-60, -16]
+
+tx_cal:
+  bias_ma: [60, 180]               # other 2xFR4: [70, 130]
+  settle_s: 2.0
+  after_reset_wait_s: 10.0
+
+rx_cal:
+  points_dbm: [-2, -10]
+  check_dbm: -6
+  settle_s: 1.0                    # VERIFY (computed delay in code)
+
+vcc:
+  nominal_v: 3.3
+  cal_points_v: [3.13, 3.47]
+  settle_s: 2.0
+  adjust_tolerance_v: 0.01
+
+limits:                            # placeholders - replaced by the MES spec
+  tx_disable_dbm: [-60, -16]
+  dtxp_db: [-0.5, 0.5]
+  rx_check_error_db: [-0.5, 0.5]
+  rx_slope: [5, 30]                # VERIFY units against real data
+  dvcc_v: [-0.033, 0.033]
+  ddmi_temp_c: [30, 60]
+  tx_loss_warn_db: 3.5
