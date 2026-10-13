@@ -1,0 +1,12 @@
+[project]
+name = "ddmi-cal-python"
+version = "0.1.0"
+description = "Python port of the LabVIEW 800G 2xFR4 DDMI Cal station"
+requires-python = ">=3.11"
+dependencies = ["pyyaml", "numpy", "PyQt5==5.15.11"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["ddmi*"]

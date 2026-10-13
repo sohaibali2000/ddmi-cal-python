@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ddmi-cal-python local files
+.venv/
+results/
+labview_xml/
+config/ui_settings.json
