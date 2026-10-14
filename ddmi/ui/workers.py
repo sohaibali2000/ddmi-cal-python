@@ -32,6 +32,7 @@ class FlowWorker(_Worker):
     result = pyqtSignal(int, str, int, object, bool)   # slot, item, ch (0 = module), value, ok
     step = pyqtSignal(int, str, str)                   # slot, stage, running|done
     sn_read = pyqtSignal(int, str)
+    data = pyqtSignal(int, str, object)                # slot, kind, payload (graphs)
     done = pyqtSignal(int, object)                     # slot, record
 
     def __init__(self, slot_id: int, station_cfg: dict, product: dict, *, scanned_sn: str,
@@ -48,6 +49,7 @@ class FlowWorker(_Worker):
                 log=self.say,
                 on_result=lambda item, ch, value, ok: self.result.emit(slot, item, ch, value, ok),
                 on_step=lambda name, state: self.step.emit(slot, name, state),
+                on_data=lambda kind, data: self.data.emit(slot, kind, data),
                 on_sn=lambda sn: self.sn_read.emit(slot, sn),
                 **self.kwargs,
             )
@@ -59,28 +61,40 @@ class FlowWorker(_Worker):
 
 
 class TxLossWorker(_Worker):
-    done = pyqtSignal(int, object)   # slot, list of 8 losses or None
+    done = pyqtSignal(int, object)   # slot, rows (ch, wavelength_nm, golden_dbm, measured_dbm, loss_db) or None
+
+    def __init__(self, slot_id: int, station_cfg: dict, product: dict, component_id: str):
+        super().__init__(slot_id, station_cfg, product)
+        self.component_id = component_id
 
     def run(self):
-        losses = None
+        rows = None
         try:
-            station = build_station(self.station_cfg, slot=self.slot_id)
-            if station.sim_module is None:
-                raise NotImplementedError("the golden sample's recorded power is needed on real hardware")
-            channels = range(1, self.product["channels"] + 1)
-            golden = [station.sim_module.tx_out_dbm(ch) for ch in channels]
-            self.say("Simulator: the simulated module's true output power is the golden record")
-            losses = calibrate_tx_loss(station.bench, golden, log=self.say, abort=self._abort,
-                                       warn_db=self.product["limits"]["tx_loss_warn_db"])
+            rows = calibrate_tx_loss(self.station_cfg, self.product, slot=self.slot_id,
+                                     component_id=self.component_id, log=self.say)
         except Exception as exc:
             self.say(f"ERROR: {type(exc).__name__}: {exc}")
-        self.done.emit(self.slot_id, losses)
+        self.done.emit(self.slot_id, rows)
 
 
 class RxTableWorker(_Worker):
     cell = pyqtSignal(int, int, float)   # att (dB), ch, power (-dBm, positive)
     progress = pyqtSignal(int)
+    prompt = pyqtSignal(str)             # ask the operator to move the meter; answer with respond()
     done = pyqtSignal(int, object)       # slot, table or None
+
+    def respond(self, ok: bool):
+        self._answer = ok
+        self._answered.set()
+
+    def _ask(self, message: str) -> bool:
+        self._answered = threading.Event()
+        self._answer = False
+        self.prompt.emit(message)
+        while not self._answered.wait(0.2):
+            if self._abort.is_set():
+                return False
+        return self._answer
 
     ATTS = ATT_STEPS_DB
 
@@ -99,7 +113,8 @@ class RxTableWorker(_Worker):
             station = build_station(self.station_cfg, slot=self.slot_id)
             table = build_rx_table(station.bench, self.product["rx_cal"]["wavelengths_nm"],
                                    settle_s=0.01 if station.sim_module else 0.5,
-                                   log=self.say, on_point=on_point, abort=self._abort)
+                                   log=self.say, on_point=on_point, on_prompt=self._ask,
+                                   abort=self._abort)
         except Exception as exc:
             self.say(f"ERROR: {type(exc).__name__}: {exc}")
         self.done.emit(self.slot_id, table)

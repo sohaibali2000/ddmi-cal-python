@@ -25,12 +25,14 @@ class RunData:
         self.steps = {s: "idle" for s in params.STEPS}
         self.step_failed: set[str] = set()
         self.current_step = ""
+        self.mpd: dict | None = None    # live MPD scan: volts, curves (per lane), lanes (analysis)
 
 
 class Engine(QObject):
     slot_updated = pyqtSignal(int)
     log_line = pyqtSignal(int, str)
     record_saved = pyqtSignal()
+    mpd_updated = pyqtSignal(int)
 
     def __init__(self, settings: SettingsStore, station_cfg: dict | None = None):
         super().__init__()
@@ -78,6 +80,7 @@ class Engine(QObject):
         worker.result.connect(self._on_result)
         worker.step.connect(self._on_step)
         worker.sn_read.connect(self._on_sn)
+        worker.data.connect(self._on_data)
         worker.done.connect(self._on_done)
         self.workers[slot_id] = worker
         worker.start()
@@ -116,6 +119,26 @@ class Engine(QObject):
         else:
             rd.steps[step] = "fail" if step in rd.step_failed else "pass"
         self.slot_updated.emit(slot_id)
+
+    @pyqtSlot(int, str, object)
+    def _on_data(self, slot_id: int, kind: str, data: dict):
+        rd = self.run_data[slot_id]
+        if kind == "mpd_start":
+            rd.mpd = {"volts": [], "curves": [[] for _ in range(data["lanes"])], "lanes": {},
+                      "planned": len(data["volts"])}
+        elif rd.mpd is None:
+            return
+        elif kind == "mpd_point":
+            rd.mpd["volts"].append(data["v"])
+            for lane, value in enumerate(data["txmon"]):
+                rd.mpd["curves"][lane].append(value)
+        elif kind == "mpd_result":
+            rd.mpd["lanes"] = data["lanes"]
+        elif kind == "mpd_tops_off":
+            lane = rd.mpd["lanes"].get(data["ch"])
+            if lane is not None:
+                lane.update(tops_off_v=data["tops_off_v"], leakage_dbm=data["leakage_dbm"])
+        self.mpd_updated.emit(slot_id)
 
     @pyqtSlot(int, str)
     def _on_sn(self, slot_id: int, sn: str):

@@ -45,10 +45,9 @@ TX_LOSS_WARN_DB = _product["limits"]["tx_loss_warn_db"]
 EQUIPMENT = [
     ("i2c", "I2C adapter", ["CH341A", "Promira", "USB-ISS"]),
     ("power_supply", "Power supply", ["GWPS320x", "E363X", "PST3202"]),
-    ("power_meter", "Power meter", ["WG3028", "8163B", "LTB-8"]),
+    ("power_meter", "Power meter (8-ch MPO)", ["LX 8-ch MPO"]),
     ("attenuator_1", "Attenuator 1 (CH1-4)", ["ST OptAtt", "Stelight VOA", "LTB-8", "MAP200"]),
     ("attenuator_2", "Attenuator 2 (CH5-8)", ["ST OptAtt", "Stelight VOA", "LTB-8", "MAP200"]),
-    ("opt_switch", "Optical switch", ["None", "Stelight OSW", "WG3023"]),
 ]
 
 # Settings label -> simulator fault name

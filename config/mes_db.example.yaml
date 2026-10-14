@@ -1,0 +1,9 @@
+# MES database used for the golden sample power in Tx Loss calibration.
+# Copy this file to config/mes_db.yaml (git-ignored) and fill in the login there,
+# or set DDMI_MES_DB_UID / DDMI_MES_DB_PWD in the environment. Never commit the login.
+driver: "{SQL Server}"
+server: ""
+database: MES
+uid: ""
+pwd: ""
+golden_table: TestResult_800G_2XFR4_TRX_TEST

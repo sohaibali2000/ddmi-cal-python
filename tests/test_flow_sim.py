@@ -48,6 +48,18 @@ def test_rx_slope_outside_its_limit_fails(station_cfg, product):
     assert record["failing_items"] == [f"Rxp_Slope_CH{ch}" for ch in range(1, 9)]
 
 
+def test_mpd_scan_curves_are_streamed_and_saved_for_the_graphs(station_cfg, product):
+    events = []
+    record = run(station_cfg, product, on_data=lambda kind, data: events.append(kind))
+    assert events[0] == "mpd_start" and events.count("mpd_point") == 126
+    assert "mpd_result" in events and events.count("mpd_tops_off") == 8
+    scan = record["mpd_scan"]
+    assert len(scan["volts"]) == 126 and all(len(curve) == 126 for curve in scan["curves"])
+    lane = scan["lanes"][1]
+    assert lane["setpoint"] == values(record, "Tops_Setpoint")[0]
+    assert len(lane["points"]) == 4 and lane["mid_v"] is not None and lane["leakage_dbm"] < -16
+
+
 def test_record_log_and_csv_are_saved(station_cfg, product):
     record = run(station_cfg, product)
     root = Path(station_cfg["results_dir"])
@@ -185,3 +197,37 @@ def test_mes_spec_overrides_the_config_limits(station_cfg, product):
     record = run(station_cfg, product, mes=FakeMes(spec={"ddmi_temp_c": [50, 60]}))
     assert record["result"] == "FAIL" and record["failing_items"] == ["DDMI_Temp(C)"]
     assert record["limits"]["DDMI_Temp(C)"] == [50, 60]
+
+
+def test_lanes_share_attenuator_channels_like_the_lab_station(station_cfg):
+    att = build_station(station_cfg).bench.attenuator
+    assert att.physical_channels == [1, 2]
+    assert [att.channel(lane) for lane in range(1, 9)] == [1, 1, 1, 1, 2, 2, 2, 2]
+
+
+def test_minimum_attenuation_protects_the_receiver(station_cfg, product):
+    from ddmi.hw.base import LaneAttenuator
+
+    class Recorder:
+        def __init__(self):
+            self.calls = []
+
+        def set_wavelength(self, ch, nm):
+            self.calls.append(("wl", ch, nm))
+
+        def set_attenuation(self, ch, db):
+            self.calls.append(("att", ch, db))
+
+    rec = Recorder()
+    att = LaneAttenuator(rec, [1, 1, 1, 1, 2, 2, 2, 2], min_att_db=3.0)
+    att.set_attenuation(6, 7.5)
+    assert rec.calls == [("att", 2, 7.5)]
+    with pytest.raises(ValueError, match="below the station minimum"):
+        att.set_attenuation(1, 2.0)
+    assert rec.calls == [("att", 2, 7.5)]       # nothing sent
+
+    # a run that would need less than the minimum stops instead of overdriving the DUT
+    station_cfg["attenuator"]["min_att_db"] = 5.0
+    record = run(station_cfg, product)
+    assert record["result"] == "FAIL"
+    assert "below the station minimum" in record["failing_items"][0]

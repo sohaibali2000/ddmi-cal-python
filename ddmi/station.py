@@ -35,7 +35,9 @@ def build_station(station_cfg: dict, *, slot: int = 1, sim_sn: str = "", fault: 
 
     if is_sim(station_cfg):
         sim = SimModule(regmap, sn=sim_sn or "SIM000001", fault=fault)
-        sim_bench = SimBench(sim, seed=slot)
+        att = station_cfg["attenuator"]
+        sim_bench = SimBench(sim, seed=slot, lane_channels=att.get("lane_channels"),
+                             min_att_db=att.get("min_att_db", 0.0))
         module = Module(sim, regmap, is_sim=True, dry_run=dry_run,
                         allow_unverified=allow_unverified, log=log)
         return Station(module, sim_bench.as_bench(), sim, sim_bench)
@@ -44,3 +46,16 @@ def build_station(station_cfg: dict, *, slot: int = 1, sim_sn: str = "", fault: 
             if station_cfg[name]["type"] != "sim"]
     raise NotImplementedError(
         "No hardware drivers yet (build map phase 14). Station config asks for " + ", ".join(real))
+
+
+def build_power_meter(station_cfg: dict, log: Callable[[str], None] = print):
+    """The real TX power meter on its own, connected. Enough for Tx Loss calibration,
+    which needs no module register access (as in the production Tx Loss tool)."""
+    cfg = station_cfg["power_meter"]
+    if cfg["type"] == "lx_mpo":
+        from .hw.power_meter_lx import PowerMeterLX
+
+        meter = PowerMeterLX(cfg["resource"], cfg["dll"], log=log)
+        meter.connect()
+        return meter
+    raise NotImplementedError(f"no driver for power meter type {cfg['type']!r} (supported: lx_mpo)")

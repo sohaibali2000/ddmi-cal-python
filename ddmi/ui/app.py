@@ -7,6 +7,7 @@ from ..station import is_sim
 
 from .pages.dashboard_page import DashboardPage
 from .pages.loss_page import LossPage
+from .pages.mpd_page import MpdPage
 from .pages.records_page import RecordsPage
 from .pages.runs_page import RunsPage
 from .pages.settings_page import SettingsPage
@@ -32,11 +33,13 @@ class MainWindow(QMainWindow):
         self.page_records = RecordsPage(self.engine)
         self.page_slots = SlotsPage(self.engine)
         self.page_runs = RunsPage(self.engine)
+        self.page_mpd = MpdPage(self.engine)
         self.tabs.addTab(self.page_dashboard, "Dashboard")
         self.tabs.addTab(self.page_settings, "Settings")
         self.tabs.addTab(self.page_loss, "Loss")
         self.tabs.addTab(self.page_records, "Records")
         self.tabs.addTab(self.page_slots, "Slots")
+        self.tabs.addTab(self.page_mpd, "MPD Scan")
         self.tabs.addTab(self.page_runs, "Runs")
         self.setCentralWidget(self.tabs)
 

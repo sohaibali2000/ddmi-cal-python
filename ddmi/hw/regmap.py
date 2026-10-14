@@ -9,9 +9,9 @@ import yaml
 
 from ..config import CONFIG_DIR, ConfigError
 
-FORMATS = ("u8", "u16", "s16_div256", "u16_scaled", "ascii", "u16_array",
+FORMATS = ("u8", "u16", "u16le", "s16_div256", "u16_scaled", "ascii", "u16_array", "u16le_array", "bytes",
            "u16_scaled_array", "volt_array", "f32_array")
-CONFIDENCE = ("STD", "CODE", "UNVERIFIED")
+CONFIDENCE = ("STD", "CODE", "HW", "UNVERIFIED")
 
 
 def _u16(value) -> int:
@@ -45,6 +45,12 @@ class Register:
             return data[0]
         if fmt == "u16":
             return int.from_bytes(data, "big")
+        if fmt == "u16le":
+            return int.from_bytes(data, "little")
+        if fmt == "bytes":
+            return list(data)
+        if fmt == "u16le_array":
+            return [int.from_bytes(data[i:i + 2], "little") for i in range(0, len(data), 2)]
         if fmt == "s16_div256":
             return int.from_bytes(data, "big", signed=True) / 256
         if fmt == "u16_scaled":
@@ -68,6 +74,12 @@ class Register:
             data = bytes([int(value) & 0xFF])
         elif fmt == "u16":
             data = _u16(value).to_bytes(2, "big")
+        elif fmt == "u16le":
+            data = _u16(value).to_bytes(2, "little")
+        elif fmt == "bytes":
+            data = bytes(int(v) & 0xFF for v in value)
+        elif fmt == "u16le_array":
+            data = b"".join(_u16(v).to_bytes(2, "little") for v in value)
         elif fmt == "s16_div256":
             data = max(-0x8000, min(0x7FFF, round(value * 256))).to_bytes(2, "big", signed=True)
         elif fmt == "u16_scaled":

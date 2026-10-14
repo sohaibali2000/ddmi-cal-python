@@ -8,7 +8,9 @@ from PyQt5.QtWidgets import (
 )
 
 from .. import params
+from ..mpd_plot import MpdView
 from ..state import Engine
+from .mpd_page import fill_lane_table, make_lane_table
 from ..widgets import CONSOLE_STYLE, STATE_COLORS
 
 COLUMNS = ["Start", "SN", "Slot", "Plan", "Result", "Failing items", "Elapsed", "User"]
@@ -53,6 +55,18 @@ class _RecordDialog(QDialog):
         log.setStyleSheet(CONSOLE_STYLE)
         log.setPlainText(log_text)
         tabs.addTab(log, "Log")
+
+        scan = record.get("mpd_scan")
+        if scan:
+            graph = QWidget()
+            graph_lay = QVBoxLayout(graph)
+            plot = MpdView(params.CHANNELS)
+            plot.show_scan(scan)
+            graph_lay.addWidget(plot, 3)
+            lanes = make_lane_table()
+            fill_lane_table(lanes, scan)
+            graph_lay.addWidget(lanes, 1)
+            tabs.insertTab(1, graph, "MPD Scan")
         lay.addWidget(tabs, 1)
 
         close = QPushButton("Close")

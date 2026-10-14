@@ -1,6 +1,8 @@
 """Scan_MPD and Scan_Disable (build map 6.5): 800G SIP Tx MPD Monitor.vi + Peak Search.vi."""
 from __future__ import annotations
 
+import copy
+
 from ..calc import tops
 from ..calc.txdisable import search_darkest
 from ..runctx import RunContext
@@ -15,11 +17,16 @@ def scan_mpd(ctx: RunContext) -> None:
     ctx.log(f"Scan_MPD: TOPS loop off, sweep Vtops {volts[0]} -> {volts[-1]} V "
             f"step {cfg['vtops_step']} V ({len(volts)} points)")
     curves = [[] for _ in range(lanes)]
+    scan = ctx.meta["mpd_scan"] = {"volts": [], "curves": curves, "lanes": {}}
+    ctx.on_data("mpd_start", {"volts": volts, "lanes": lanes})
     for v in volts:
         ctx.check_abort()
         module.write("Vtops", [v] * lanes)
-        for lane, value in enumerate(module.read("R_TXMON")):
+        txmon = module.read("R_TXMON")
+        for lane, value in enumerate(txmon):
             curves[lane].append(value)
+        scan["volts"].append(v)
+        ctx.on_data("mpd_point", {"v": v, "txmon": list(txmon)})
 
     # Per lane: peak, valley and the operating-point voltages between them.
     fractions = cfg["op_point_fractions"]
@@ -29,12 +36,19 @@ def scan_mpd(ctx: RunContext) -> None:
         ctx.detail(f"sweep CH{ch} TXMON: {curves[lane]}")
         i_peak, i_valley = tops.peak_valley(curves[lane])
         valley_v[ch] = volts[i_valley]
+        lane_info = scan["lanes"][ch] = {
+            "peak_v": volts[i_peak], "peak": curves[lane][i_peak],
+            "valley_v": volts[i_valley], "valley": curves[lane][i_valley],
+            "points": {}, "mid_v": None, "setpoint": None, "tops_off_v": volts[i_valley],
+        }
         try:
             points[ch] = tops.operating_points(volts, curves[lane], fractions, cfg["op_point_mode"])
             points[ch]["mid"] = tops.tops_mid(points[ch], cfg["tops_mid_from"])
         except ValueError as exc:
             ctx.log(f"CH{ch}: scan failed ({exc})")
             continue
+        lane_info["points"] = {str(f): points[ch][f] for f in fractions}
+        lane_info["mid_v"] = points[ch]["mid"]
         ctx.log(f"CH{ch}: peak {curves[lane][i_peak]} @ {volts[i_peak]:.2f} V, valley "
                 f"{curves[lane][i_valley]} @ {volts[i_valley]:.2f} V, Tops_Mid {points[ch]['mid']:.3f} V")
 
@@ -53,6 +67,7 @@ def scan_mpd(ctx: RunContext) -> None:
                 try:
                     value = tops.tops_setpoint(txmon[ch - 1], mpd_out[ch - 1], cfg["setpoint_scale"])
                     setpoints[ch - 1] = value
+                    scan["lanes"][ch]["setpoint"] = value
                 except ValueError as exc:
                     ctx.log(f"CH{ch}: {exc}")
             ctx.results.add("Tops_Setpoint", ch, value)
@@ -61,6 +76,7 @@ def scan_mpd(ctx: RunContext) -> None:
     module.write("tops_off", [valley_v[ch] for ch in ctx.channels])
     module.write_value("W_TOPPID", "toppid_on")
     ctx.log(f"tops_setpoint written: {setpoints}; tops_off = valley voltage; TOPS loop on")
+    ctx.on_data("mpd_result", {"lanes": copy.deepcopy(scan["lanes"])})
 
 
 def scan_disable(ctx: RunContext) -> None:
@@ -84,5 +100,9 @@ def scan_disable(ctx: RunContext) -> None:
             ctx.log(f"CH{ch}: tops_off {start:.3f} -> {best_v:.3f} V, leakage {leakage:.2f} dBm")
             ctx.results.add("Tops_off(V)", ch, round(best_v, 3))
             ctx.results.add("Tx_Disable(dBm)", ch, round(leakage, 2))
+            lane_info = ctx.meta.get("mpd_scan", {}).get("lanes", {}).get(ch)
+            if lane_info is not None:
+                lane_info.update(tops_off_v=best_v, leakage_dbm=leakage)
+                ctx.on_data("mpd_tops_off", {"ch": ch, "tops_off_v": best_v, "leakage_dbm": leakage})
     finally:
         module.write("W_TXDis", 0x00)

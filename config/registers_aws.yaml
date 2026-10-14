@@ -2,12 +2,14 @@
 #
 # conf: STD        standard CMIS, safe
 #       CODE       decoded from IIC.vi, high confidence
+#       HW         read on a real AOI module (2026-10-14): address and byte order confirmed
 #       UNVERIFIED decoded, but address, byte order, format or value is not confirmed.
 #                  The write guard refuses these on real hardware unless
 #                  --allow-unverified is given. Confirm with firmware first.
 #
 # fmt:  u8, u16, s16_div256, u16_scaled (value = raw * scale), ascii,
-#       u16_array, u16_scaled_array (raw = value * scale),
+#       u16_array, u16_scaled_array (raw = value * scale), u16le / u16le_array (little-endian),
+#       bytes (list of raw byte values),
 #       volt_array (raw = V / full_scale * 4095), f32_array
 
 registers:
@@ -20,20 +22,25 @@ registers:
   R_DBias:        {page: 0x11, byte: 0xAA, len: 16, fmt: u16_array, conf: STD}
   R_Los:          {page: 0x11, byte: 0x93, len: 1,  fmt: u8, conf: STD}
   W_Reset:        {page: 0x00, byte: 0x1A, len: 1,  fmt: u8, conf: STD}          # write 0x08
+  # CMIS host password entry. The AOI vendor pages (80h-FFh) stay locked until the vendor
+  # password (values.vendor_password, from IIC.vi) is written here; confirmed on hardware.
+  W_Password:     {page: 0x00, byte: 0x7A, len: 4,  fmt: bytes, conf: HW}
   W_TXDis:        {page: 0x10, byte: 0x82, len: 1,  fmt: u8, conf: STD}          # bit per lane; 0xFF all off, 0x00 all on
 
   # --- raw monitors (vendor page F3) ---
-  R_TXMON:        {page: 0xF3, byte: 0x86, len: 16, fmt: u16_array, conf: CODE}
-  R_MPD_OUT:      {page: 0xF3, byte: 0xF0, len: 16, fmt: u16_array, conf: CODE}
-  R_RSSI:         {page: 0xF3, byte: 0xA6, len: 16, fmt: u16_array, conf: CODE}
-  R_VCCADC:       {page: 0xF3, byte: 0x84, len: 2,  fmt: u16, conf: CODE}
+  # Little-endian on the AOI module (read-to-read noise is a few counts only this way round,
+  # and TXMON/MPD_OUT*1000 then matches the stored tops_setpoint).
+  R_TXMON:        {page: 0xF3, byte: 0x86, len: 16, fmt: u16le_array, conf: HW}
+  R_MPD_OUT:      {page: 0xF3, byte: 0xF0, len: 16, fmt: u16le_array, conf: HW}
+  R_RSSI:         {page: 0xF3, byte: 0xA6, len: 16, fmt: u16le_array, conf: HW}
+  R_VCCADC:       {page: 0xF3, byte: 0x84, len: 2,  fmt: u16le, conf: HW}
 
   # --- bias and TOPS ---
   IBias:          {page: 0xE9, byte: 0xC0, len: 8,  fmt: u16_scaled_array, scale: 100, conf: UNVERIFIED}  # 4 lasers, mA; scaling: constant 100 seen
   W_IBiasPID:     {page: 0xE9, byte: 0xD0, len: 1,  fmt: u8, conf: UNVERIFIED}   # 0 = loop off; restore 15 (or 3)
   Vtops:          {page: 0xE9, byte: 0xA0, len: 16, fmt: volt_array, full_scale: 5.0, conf: CODE}
   W_TOPPID:       {page: 0xE8, byte: 0x80, len: 1,  fmt: u8, conf: UNVERIFIED}   # TOPS loop on/off; on-value unconfirmed
-  tops_setpoint:  {page: 0xE8, byte: 0x82, len: 16, fmt: u16_array, conf: CODE}
+  tops_setpoint:  {page: 0xE8, byte: 0x82, len: 16, fmt: u16_array, conf: HW}     # big-endian, confirmed
   tops_off:       {page: 0xE8, byte: 0xCC, len: 16, fmt: volt_array, full_scale: 5.0, conf: CODE}
   tops_room:      {page: 0xE8, byte: 0xAC, len: 16, fmt: volt_array, full_scale: 5.0, conf: CODE}
 
@@ -54,6 +61,7 @@ registers:
 
 # Values the flow writes that are themselves unconfirmed.
 values:
+  vendor_password: [0x41, 0x4F, 0x49, 0x57]   # 'AOIW', from IIC.vi; unlocks pages 80h-FFh
   reset: 0x08
   toppid_off: 0
   toppid_on: 1

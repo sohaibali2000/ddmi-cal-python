@@ -45,6 +45,25 @@ written to a real module.
 `--fault dead_tx_lane | rx_nonlinear | sn_mismatch`. A new station needs `tx-loss`
 and `rx-table` once per slot before `run` will start.
 
+## Tx Loss calibration
+
+Works the way the production DDMI TX Loss tool does:
+
+1. Put the golden sample in the station, powered, with its MPO fibre on the 8-channel power meter.
+2. Loss tab: enter the golden sample's Component ID / SN and press Tx Loss Calibration.
+3. The meter is set to 1270 / 1290 / 1310 / 1330 nm (CH1-4, repeated for CH5-8) with 100 ms
+   averaging, all 8 channels are read at once, and the golden power is read from MES
+   (latest TestNumber in TestResult_800G_2XFR4_TRX_TEST).
+4. Tx Loss = golden - measured. The table shows golden, measured and loss; nothing is saved
+   until you confirm.
+5. Saving replaces only the text between the quotes of the `Tx Loss` line (3 decimals, tabs,
+   the `\0D\0A` suffix); every other byte of the ini stays as it was.
+
+On a real station this needs `pip install pyodbc pythonnet`, the meter's COM port and DLL path in
+`config/station_lab.yaml`, and the database login in `config/mes_db.yaml` (copy
+`config/mes_db.example.yaml`; the file is git-ignored, never commit the login). Command line:
+`python -m ddmi tx-loss --station config/station_lab.yaml --component-id <SN>`.
+
 ## Using the UI
 
 - **Loss** first on a new station: run Tx Loss Calibration and the RX Attenuation Table for each slot.

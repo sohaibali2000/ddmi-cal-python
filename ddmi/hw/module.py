@@ -20,9 +20,26 @@ class Module:
         self.dry_run = dry_run
         self.allow_unverified = allow_unverified
         self.log = log
+        self.unlocked = False
+
+    VENDOR_PAGES = 0x80     # pages 80h-FFh are vendor pages: locked until the password is entered
+
+    def unlock(self) -> None:
+        """Enter the vendor password (CMIS bytes 122-125). Needed again after a module reset."""
+        if "vendor_password" not in self.regmap.values:
+            return
+        self.write("W_Password", self.regmap.value("vendor_password"))
+        if hasattr(self.bus, "forget_page"):
+            self.bus.forget_page()
+        self.unlocked = True
+
+    def _ensure_unlocked(self, reg) -> None:
+        if reg.page >= self.VENDOR_PAGES and reg.byte >= 0x80 and not self.unlocked:
+            self.unlock()
 
     def read(self, name: str):
         reg = self.regmap[name]
+        self._ensure_unlocked(reg)
         data = self.bus.read(reg.page, reg.byte, reg.length)
         value = reg.decode(data)
         self.log(f"I2C R {name} [{reg.address}] = {data.hex()} -> {_show(value)}")
@@ -44,8 +61,13 @@ class Module:
         if self.dry_run:
             self.log(f"I2C W (dry-run, not sent) {text}")
             return
+        self._ensure_unlocked(reg)
         self.bus.write(reg.page, reg.byte, data)
         self.log(f"I2C W {text}")
+        if name == "W_Reset":
+            self.unlocked = False       # a reset locks the vendor pages again
+            if hasattr(self.bus, "forget_page"):
+                self.bus.forget_page()
 
     def write_value(self, name: str, value_name: str) -> None:
         """Write one of the named constants from the register map's `values`."""

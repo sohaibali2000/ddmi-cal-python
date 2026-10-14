@@ -20,9 +20,8 @@ def station_cfg(tmp_path, product):
                results_dir=str(tmp_path / "results"), time_scale=0.0)
     station = build_station(cfg, slot=1)
     quiet = lambda _text: None
-    golden = [station.sim_module.tx_out_dbm(ch) for ch in range(1, 9)]
-    stationfiles.write_tx_loss(tmp_path / "system_Data.ini",
-                               calibrate_tx_loss(station.bench, golden, log=quiet))
+    rows = calibrate_tx_loss(cfg, product, slot=1, log=quiet)
+    stationfiles.write_tx_loss(tmp_path / "system_Data.ini", [row["loss_db"] for row in rows])
     stationfiles.write_rx_rows(
         stationfiles.rx_table_dir(1, tmp_path / "rx_tables"),
         build_rx_table(station.bench, product["rx_cal"]["wavelengths_nm"], log=quiet))

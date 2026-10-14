@@ -9,10 +9,16 @@ VCC_MAX_OVERDRIVE_V = 0.3     # never set the supply more than this above the ta
 
 
 def reini(ctx: RunContext) -> None:
-    """Attenuators to 1.0 dB on all channels. No module reset at AWS DDMI Cal."""
-    for ch in ctx.channels:
-        ctx.bench.attenuator.set_attenuation(ch, REINI_ATT_DB)
-    ctx.log(f"Reini: all {len(ctx.channels)} attenuator channels set to {REINI_ATT_DB} dB")
+    """Attenuators to 1.0 dB (or the station minimum, if higher), TX meter wavelengths set.
+    No module reset at AWS DDMI Cal."""
+    att = ctx.bench.attenuator
+    reini_db = max(REINI_ATT_DB, att.min_att_db)
+    for ch in att.physical_channels:
+        att.set_channel_attenuation(ch, reini_db)
+    meter = ctx.product["tx_power_meter"]
+    ctx.bench.power_meter.configure(meter["wavelengths_nm"], meter["avg_time_ms"])
+    ctx.log(f"Reini: attenuator channels {att.physical_channels} set to {reini_db} dB; "
+            f"TX meter set to {meter['wavelengths_nm']} nm, {meter['avg_time_ms']} ms averaging")
 
 
 def set_temp(ctx: RunContext) -> None:

@@ -20,6 +20,11 @@ class FakeBus:
         self.mem[(page, byte)] = bytes(data)
         self.writes.append((page, byte, bytes(data)))
 
+    @property
+    def data_writes(self):
+        """Writes other than the vendor password entry."""
+        return [w for w in self.writes if w[1] != 0x7A]
+
 
 def test_addresses_match_the_build_map(regmap):
     assert regmap["R_TXMON"].address == "F3h/0x86/16"
@@ -40,8 +45,21 @@ def test_dvcc_is_100_microvolt_units(regmap):
     assert regmap["R_DVCC"].decode((33000).to_bytes(2, "big")) == pytest.approx(3.3)
 
 
+def test_vendor_monitors_are_little_endian(regmap):
+    # confirmed on an AOI module: RSSI of a dark receiver reads 04 00, i.e. 4 counts
+    assert regmap["R_RSSI"].decode(bytes.fromhex("0400") * 8) == [4] * 8
+    assert regmap["R_VCCADC"].decode(bytes.fromhex("3205")) == 1330
+    assert regmap["R_TXMON"].encode([235] * 8)[:2] == bytes.fromhex("eb00")
+
+
+def test_password_register(regmap):
+    reg = regmap["W_Password"]
+    assert reg.address == "00h/0x7A/4" and reg.verified
+    assert reg.encode(regmap.value("vendor_password")) == b"AOIW"
+
+
 def test_u16_array_is_big_endian(regmap):
-    reg = regmap["R_TXMON"]
+    reg = regmap["R_DTXP"]
     data = reg.encode([1850, 2, 3, 4, 5, 6, 7, 65535])
     assert data[:2] == bytes.fromhex("073A") and data[-2:] == b"\xff\xff"
     assert reg.decode(data) == [1850, 2, 3, 4, 5, 6, 7, 65535]
@@ -98,13 +116,13 @@ def test_hardware_refuses_unverified_writes(regmap):
 def test_allow_unverified_lets_the_write_through(regmap):
     bus = FakeBus()
     Module(bus, regmap, is_sim=False, allow_unverified=True).write("VccCal", [1.25, 0.0])
-    assert len(bus.writes) == 1
+    assert len(bus.data_writes) == 1
 
 
 def test_simulator_accepts_unverified_writes(regmap):
     bus = FakeBus()
     Module(bus, regmap, is_sim=True).write("VccCal", [1.25, 0.0])
-    assert len(bus.writes) == 1
+    assert len(bus.data_writes) == 1
 
 
 def test_dry_run_logs_but_sends_nothing(regmap):
@@ -124,5 +142,19 @@ def test_write_cal_splits_channels_across_the_two_pages(regmap):
     bus = FakeBus()
     module = Module(bus, regmap, is_sim=True)
     module.write_cal("DTXPCal", [1, 2, 3, 4, 5, 6, 7, 8], [10, 20, 30, 40, 50, 60, 70, 80])
-    assert [(p, b) for p, b, _ in bus.writes] == [(0xEC, 0xC0), (0xED, 0xC0)]
+    assert [(p, b) for p, b, _ in bus.data_writes] == [(0xEC, 0xC0), (0xED, 0xC0)]
     assert module.read_cal("DTXPCal") == ([1, 2, 3, 4, 5, 6, 7, 8], [10, 20, 30, 40, 50, 60, 70, 80])
+
+
+def test_vendor_password_is_entered_before_the_first_vendor_page_and_after_a_reset(regmap):
+    bus = FakeBus()
+    module = Module(bus, regmap, is_sim=False)
+    module.read("R_DTEMP")                      # lower page: no password needed
+    module.read("R_DTXP")                       # standard page 11h: no password needed
+    assert bus.writes == []
+    module.read("R_TXMON")                      # vendor page F3h
+    module.read("R_RSSI")
+    assert bus.writes == [(0x00, 0x7A, b"AOIW")]
+    module.write("W_Reset", 0x08)               # a reset locks the vendor pages again
+    module.read("R_TXMON")
+    assert [w for w in bus.writes if w[1] == 0x7A] == [(0x00, 0x7A, b"AOIW")] * 2

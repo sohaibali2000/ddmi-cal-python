@@ -111,6 +111,7 @@ class RxAttTablePopup(QDialog):
         self._worker.log.connect(self._on_log)
         self._worker.cell.connect(self._on_cell)
         self._worker.progress.connect(self.progress.setValue)
+        self._worker.prompt.connect(self._on_prompt)
         self._worker.done.connect(self._on_done)
         self._worker.start()
 
@@ -121,6 +122,13 @@ class RxAttTablePopup(QDialog):
     @pyqtSlot(int, int, float)
     def _on_cell(self, att: int, ch: int, power: float):
         self._set(self.atts.index(att), ch, f"{power:.2f}")
+
+    @pyqtSlot(str)
+    def _on_prompt(self, message: str):
+        self.log(message)
+        answer = QMessageBox.question(self, "RX Attenuation Table", message,
+                                      QMessageBox.Ok | QMessageBox.Cancel, QMessageBox.Ok)
+        self._worker.respond(answer == QMessageBox.Ok)
 
     @pyqtSlot(int, object)
     def _on_done(self, slot_id: int, table):

@@ -31,6 +31,12 @@ tx_disable:
   extra_steps_if_above_dbm: null   # V12: -18 dBm -> 5 more steps
   limit_dbm: [-60, -16]
 
+tx_power_meter:
+  # 8-channel MPO meter: wavelength per channel (the meter supports 1270/1290/1310/1330)
+  # and averaging time, as the production Tx Loss tool sets them.
+  wavelengths_nm: [1270, 1290, 1310, 1330, 1270, 1290, 1310, 1330]
+  avg_time_ms: 100
+
 tx_cal:
   bias_ma: [60, 180]               # other 2xFR4: [70, 130]
   settle_s: 2.0
@@ -39,7 +45,8 @@ tx_cal:
 rx_cal:
   points_dbm: [-2, -10]
   check_dbm: -6
-  wavelengths_nm: [1271, 1291, 1311, 1331, 1271, 1291, 1311, 1331]   # VERIFY against OVA Set Wavelength.vi
+  # Attenuator wavelength per lane (the AT4308 is calibrated at 1270/1290/1310/1330).
+  wavelengths_nm: [1270, 1290, 1310, 1330, 1270, 1290, 1310, 1330]
   settle_s: 1.0                    # VERIFY (computed delay in code)
 
 vcc:

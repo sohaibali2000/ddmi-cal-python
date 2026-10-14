@@ -39,33 +39,46 @@ def read_tx_loss(path: Path) -> list[float] | None:
     return values if len(values) == CHANNELS else None
 
 
-def write_tx_loss(path: Path, values: list[float]) -> None:
-    """Replace the Tx Loss line, keeping the rest of the ini.
+TX_LOSS_LINE_RE = re.compile(r'(Tx Loss\s*=\s*")([^"]*)(")')
 
-    Written the way LabVIEW saves a tab-delimited array: values to 3 decimals, tabs as
-    the \\09 escape and a trailing \\0D\\0A. The trailing escape is confirmed from a
-    station file; the \\09 spelling of the tab is not (a literal tab is read too).
+
+def format_tx_loss(values: list[float]) -> str:
+    """The payload the production Tx Loss tool writes: 3 decimals, real tabs, then the
+    literal 6 characters \\0D\\0A (LabVIEW's escaped line ending)."""
+    return "\t".join(f"{v:.3f}" for v in values) + "\\0D\\0A"
+
+
+def write_tx_loss(path: Path, values: list[float]) -> None:
+    """Replace only the text between the quotes of the Tx Loss line.
+
+    Every other byte of the file is left as it is (other keys, spacing, CR LF), as the
+    production tool does. A file without a Tx Loss line gets one added under [Data];
+    the production tool refuses such a file instead.
     """
     if len(values) != CHANNELS:
         raise ValueError(f"Tx Loss needs {CHANNELS} values, got {len(values)}")
     path = Path(path)
-    line = 'Tx Loss="' + "\\09".join(f"{v:.3f}" for v in values) + '\\0D\\0A"'
+    payload = format_tx_loss(values)
     try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        lines = []
-    for i, old in enumerate(lines):
-        if re.match(r"\s*Tx Loss\s*=", old):
-            lines[i] = line
-            break
-    else:
-        sections = [i for i, l in enumerate(lines) if l.strip() == "[Data]"]
-        if sections:
-            lines.insert(sections[0] + 1, line)
+        with open(path, encoding="utf-8", newline="") as fh:
+            content = fh.read()
+    except FileNotFoundError:
+        content = ""
+
+    content, count = TX_LOSS_LINE_RE.subn(lambda m: m.group(1) + payload + m.group(3), content, count=1)
+    if count == 0:
+        eol = "\r\n" if "\r\n" in content or not content else "\n"
+        line = f'Tx Loss = "{payload}"'
+        if "[Data]" in content:
+            head, tail = content.split("[Data]", 1)
+            content = head + "[Data]" + eol + line + (tail if tail.startswith(("\r", "\n")) else eol + tail)
         else:
-            lines += ["[Data]", line]
+            content = content + ("" if not content or content.endswith(("\r", "\n")) else eol) \
+                + "[Data]" + eol + line + eol
+
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\r\n".join(lines) + "\r\n", encoding="utf-8", newline="")
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        fh.write(content)
 
 
 def rx_table_dir(slot: int = 1, base: Path = RX_TABLE_DIR) -> Path:

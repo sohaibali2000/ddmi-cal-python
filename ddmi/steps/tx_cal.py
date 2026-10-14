@@ -18,7 +18,7 @@ def tx_cal(ctx: RunContext) -> None:
             module.write_value("W_IBiasPID", "ibiaspid_off")
             module.write("IBias", [bias] * ctx.product["lasers"])
             ctx.sleep(cfg["settle_s"])
-            power = {ch: ctx.true_tx_power(ch) for ch in ctx.channels}
+            power = ctx.true_tx_powers()
             txmon = module.read("R_TXMON")
             for ch in ctx.channels:
                 points[ch].append((txmon[ch - 1], dbm_to_lin(power[ch])))
@@ -53,7 +53,7 @@ def tx_cal(ctx: RunContext) -> None:
 def tx_check(ctx: RunContext) -> None:
     """At normal bias: dTxP = true_dBm - DDMI_dBm."""
     module = ctx.module
-    power = {ch: ctx.true_tx_power(ch) for ch in ctx.channels}
+    power = ctx.true_tx_powers()
     ddmi = module.read("R_DTXP")
     slopes, offsets = module.read_cal("DTXPCal")
     ctx.detail(f"R_DTXPCal read back: slopes {slopes}, offsets {offsets}")

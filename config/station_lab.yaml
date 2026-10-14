@@ -1,13 +1,21 @@
-# Real instruments. Types and addresses are placeholders: fill in at the lab
-# (build map open question 6). No hardware driver exists yet.
+# Real instruments on the lab station (confirmed 2026-10-14 unless marked TODO).
 station_name: 800G_DDMI_Cal-Left
 dry_run: true                      # keep true until the unverified registers are confirmed
 allow_unverified_writes: false     # must stay false on real modules
-i2c: {type: ch341}
-power_supply: {type: gwps320x, resource: "COM5"}
-power_meter: {type: wg3028, resource: ""}
-opt_switch: {type: none}
-attenuator: {type: st_optatt, units: 2, resource: ""}
+# COM numbers change when the USB hub is replugged; the USB serial numbers do not.
+# DUT: Devantech USB-ISS I2C adapter (USB SN 00071351), CMIS module at 7-bit address 0x50
+i2c: {type: usb_iss, resource: "COM14"}
+# RX light source: a transceiver module on its own USB-ISS (USB SN 00071349)
+light_source: {type: usb_iss_module, resource: "COM16"}
+# GW Instek GPP-3060 (USB SN EZ201279), 9600 baud, newline; DUT on CH1. The second GPP (EZ201269) is on COM19.
+power_supply: {type: gw_gpp, resource: "COM20", channel: 1}
+# 8-channel MPO meter PM4208 (SN T04120501044), as used by the production Tx Loss tool (no optical switch)
+power_meter: {type: lx_mpo, resource: "COM23", dll: "C:/Users/Syed_Ali/Documents/DDMI_TX_Loss_Standalone/Inst_LX_PowerMeter v1.012.dll"}
+# TriBrer (Semight) AT4308, SN T01220501023, through the vendor's 32-bit DLLs (ddmi/hw/voa_host).
+# CH1 feeds DUT RX1 (lanes 1-4), CH2 feeds RX2 (lanes 5-8). About +8 dBm goes into CH1/CH2.
+# TODO min_att_db: confirm against the DUT receiver's maximum input; 3 dB keeps each fibre near +5 dBm.
+attenuator: {type: at4308, resource: "COM24", dll_dir: "C:/Users/Syed_Ali/2XFR4_Final_Test/logic/instruments",
+             lane_channels: [1, 1, 1, 1, 2, 2, 2, 2], min_att_db: 3.0}
 tx_loss_file: station_data/system_Data.ini
 rx_table_dir: station_data/rx_tables
 results_dir: results

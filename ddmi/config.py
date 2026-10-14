@@ -10,7 +10,7 @@ CONFIG_DIR = ROOT / "config"
 
 OP_POINT_MODES = ("x_of_peak", "one_minus_x_of_peak", "x_of_span", "one_minus_x_of_span")
 DDMI_CAL_PARTS = ("tx", "rx", "vcc", "temp")
-INSTRUMENTS = ("i2c", "power_supply", "power_meter", "opt_switch", "attenuator")
+INSTRUMENTS = ("i2c", "power_supply", "power_meter", "attenuator")
 
 
 class ConfigError(ValueError):
@@ -96,6 +96,12 @@ def validate_product(cfg: dict) -> dict:
     _number(cfg, "tx_disable.max_steps", 1)
     _range(cfg, "tx_disable.limit_dbm")
 
+    for nm in _numbers(cfg, "tx_power_meter.wavelengths_nm", int(channels)):
+        if nm not in (1270, 1290, 1310, 1330):
+            raise ConfigError(f"tx_power_meter.wavelengths_nm: the meter supports 1270/1290/1310/1330, not {nm}")
+    if _get(cfg, "tx_power_meter.avg_time_ms") not in (100, 200, 500):
+        raise ConfigError("tx_power_meter.avg_time_ms must be 100, 200 or 500")
+
     low, high = _numbers(cfg, "tx_cal.bias_ma", 2)
     if low == high:
         raise ConfigError("tx_cal.bias_ma needs two different bias points")
@@ -133,6 +139,14 @@ def validate_station(cfg: dict) -> dict:
         entry = _get(cfg, name)
         if not isinstance(entry, dict) or not isinstance(entry.get("type"), str):
             raise ConfigError(f"{name} must be a mapping with a 'type'")
+    att = cfg["attenuator"]
+    if "lane_channels" in att:
+        lanes = att["lane_channels"]
+        if (not isinstance(lanes, list) or len(lanes) != 8
+                or any(isinstance(c, bool) or not isinstance(c, int) or c < 1 for c in lanes)):
+            raise ConfigError("attenuator.lane_channels must list the attenuator channel for each of the 8 lanes")
+    if "min_att_db" in att:
+        _number(cfg, "attenuator.min_att_db", 0, 60)
     if "time_scale" in cfg:
         _number(cfg, "time_scale", 0)
     for name in ("tx_loss_file", "rx_table_dir", "results_dir"):

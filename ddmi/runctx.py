@@ -32,6 +32,7 @@ class RunContext:
     log: Callable[[str], None] = print          # operator-level lines
     detail: Callable[[str], None] = lambda _t: None   # raw values; log file only
     on_step: Callable[[str, str], None] = lambda _name, _state: None
+    on_data: Callable[[str, dict], None] = lambda _kind, _data: None   # live data for graphs
     abort: threading.Event = field(default_factory=threading.Event)
     meta: dict = field(default_factory=dict)
 
@@ -47,9 +48,13 @@ class RunContext:
         if self.abort.wait(seconds * self.time_scale):
             raise Aborted()
 
-    def true_tx_power(self, ch: int) -> float:
-        """true_dBm = meter + TxLoss[ch]."""
-        meter = self.bench.read_tx_power(ch)
-        true = meter + self.tx_loss[ch - 1]
-        self.detail(f"TX power CH{ch}: meter {meter:.3f} dBm + TxLoss {self.tx_loss[ch - 1]:.2f} = {true:.3f} dBm")
+    def true_tx_powers(self) -> dict[int, float]:
+        """true_dBm = meter + TxLoss[ch], all channels from one read of the 8-channel meter."""
+        meter = self.bench.read_tx_powers()
+        true = {ch: meter[ch - 1] + self.tx_loss[ch - 1] for ch in self.channels}
+        self.detail("TX power: " + ", ".join(
+            f"CH{ch} {meter[ch - 1]:.3f}+{self.tx_loss[ch - 1]:.3f}={true[ch]:.3f}" for ch in self.channels))
         return true
+
+    def true_tx_power(self, ch: int) -> float:
+        return self.true_tx_powers()[ch]

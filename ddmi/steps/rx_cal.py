@@ -11,9 +11,13 @@ def _set_power(ctx: RunContext, ch: int, power_dbm: float) -> None:
         att = ctx.rx_tables[ch].att_for_power(power_dbm)
     except ValueError as exc:
         raise StopTest(f"RX table CH{ch}: {exc}") from exc
-    ctx.bench.attenuator.set_wavelength(ch, ctx.product["rx_cal"]["wavelengths_nm"][ch - 1])
-    ctx.bench.attenuator.set_attenuation(ch, att)
-    ctx.detail(f"RX CH{ch}: {power_dbm} dBm -> attenuation {att:.2f} dB")
+    attenuator = ctx.bench.attenuator
+    attenuator.set_wavelength(ch, ctx.product["rx_cal"]["wavelengths_nm"][ch - 1])
+    try:
+        attenuator.set_attenuation(ch, att)
+    except ValueError as exc:
+        raise StopTest(f"RX CH{ch} at {power_dbm} dBm: {exc}") from exc
+    ctx.detail(f"RX CH{ch}: {power_dbm} dBm -> attenuator CH{attenuator.channel(ch)} {att:.2f} dB")
 
 
 def _pairs(ctx: RunContext) -> list[tuple[int, int]]:
@@ -63,15 +67,21 @@ def rx_cal(ctx: RunContext) -> None:
 
 
 def rx_check(ctx: RunContext) -> None:
-    """Set the check power, read R_DRXP: error = DDMI - check."""
+    """Set the check power, read R_DRXP: error = DDMI - check.
+
+    In the same lane pairs as the calibration: lanes on one RX fibre share an attenuator
+    channel, so each lane's own setting only holds while its pair is being read.
+    """
     cfg, module = ctx.product["rx_cal"], ctx.module
     check = cfg["check_dbm"]
-    for ch in ctx.channels:
-        _set_power(ctx, ch, check)
-    ctx.sleep(cfg["settle_s"])
-    ddmi = module.read("R_DRXP")
-    for ch in ctx.channels:
-        ddmi_dbm = lin_to_dbm(ddmi[ch - 1])
-        ctx.results.add(f"DD_RxP@{check:g}(dBm)", ch, round(ddmi_dbm, 2))
-        ctx.results.add("dRxP(dB)", ch, round(ddmi_dbm - check, 2))
+    for pair in _pairs(ctx):
+        ctx.check_abort()
+        for ch in pair:
+            _set_power(ctx, ch, check)
+        ctx.sleep(cfg["settle_s"])
+        ddmi = module.read("R_DRXP")
+        for ch in pair:
+            ddmi_dbm = lin_to_dbm(ddmi[ch - 1])
+            ctx.results.add(f"DD_RxP@{check:g}(dBm)", ch, round(ddmi_dbm, 2))
+            ctx.results.add("dRxP(dB)", ch, round(ddmi_dbm - check, 2))
     ctx.log(f"RX check at {check} dBm: error {[ctx.results.value('dRxP(dB)', ch) for ch in ctx.channels]} dB")

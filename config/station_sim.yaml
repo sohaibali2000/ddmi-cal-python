@@ -4,8 +4,8 @@ allow_unverified_writes: false     # must stay false on real modules
 i2c: {type: sim}
 power_supply: {type: sim}
 power_meter: {type: sim}
-opt_switch: {type: sim}
-attenuator: {type: sim, units: 2}  # CH1-4 on unit 1, CH5-8 on unit 2 (V6.8 uses two OVA refs)
+# Same wiring as the lab station: attenuator CH1 feeds RX1 (lanes 1-4), CH2 feeds RX2 (lanes 5-8)
+attenuator: {type: sim, units: 1, lane_channels: [1, 1, 1, 1, 2, 2, 2, 2], min_att_db: 0.0}
 tx_loss_file: station_data/system_Data.ini
 rx_table_dir: station_data/rx_tables
 results_dir: results

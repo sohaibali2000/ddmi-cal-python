@@ -32,6 +32,7 @@ def run_slot(*, station_cfg: dict, product: dict, slot: int = 1, scanned_sn: str
              log: Callable[[str], None] = print,
              on_result: Callable[[str, int, object, bool], None] | None = None,
              on_step: Callable[[str, str], None] = lambda _n, _s: None,
+             on_data: Callable[[str, dict], None] = lambda _k, _d: None,
              on_sn: Callable[[str], None] = lambda _sn: None,
              abort: threading.Event | None = None,
              mes: MesClient | None = None, station: Station | None = None) -> dict:
@@ -99,7 +100,7 @@ def run_slot(*, station_cfg: dict, product: dict, slot: int = 1, scanned_sn: str
             product=product, module=station.module, bench=station.bench, results=results,
             tx_loss=tx_loss, rx_tables=rx_tables, scanned_sn=scanned_sn,
             time_scale=station_cfg.get("time_scale", 1.0), log=say, detail=detail,
-            on_step=on_step, abort=abort,
+            on_step=on_step, on_data=on_data, abort=abort,
         )
         reason = ""
         try:
