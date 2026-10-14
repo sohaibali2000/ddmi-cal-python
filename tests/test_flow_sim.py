@@ -32,6 +32,22 @@ def test_full_run_passes_with_tight_errors(station_cfg, product):
     assert record["mes"] == {"checked_in": True, "saved": True, "checked_out": True}
 
 
+def test_every_documented_limit_is_applied(station_cfg, product):
+    record = run(station_cfg, product)
+    assert record["limits"] == {
+        "Rxp_Slope": [5, 30], "Tx_Disable(dBm)": [-60, -16], "dTxP(dB)": [-0.5, 0.5],
+        "dRxP(dB)": [-0.5, 0.5], "dVcc(V)": [-0.033, 0.033], "DDMI_Temp(C)": [30, 60],
+    }
+    assert all(5 <= v <= 30 for v in values(record, "Rxp_Slope"))
+
+
+def test_rx_slope_outside_its_limit_fails(station_cfg, product):
+    product["limits"]["rx_slope"] = [0.1, 1]
+    record = run(station_cfg, product)
+    assert record["result"] == "FAIL"
+    assert record["failing_items"] == [f"Rxp_Slope_CH{ch}" for ch in range(1, 9)]
+
+
 def test_record_log_and_csv_are_saved(station_cfg, product):
     record = run(station_cfg, product)
     root = Path(station_cfg["results_dir"])

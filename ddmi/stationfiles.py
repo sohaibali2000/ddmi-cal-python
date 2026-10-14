@@ -19,7 +19,10 @@ def tx_loss_path(slot: int = 1, base: Path = TX_LOSS_FILE) -> Path:
 
 
 def read_tx_loss(path: Path) -> list[float] | None:
-    """[Data] Tx Loss="v1<tab>...<tab>v8", CH1 -> CH8. None if absent or malformed."""
+    """[Data] Tx Loss="v1<tab>...<tab>v8", CH1 -> CH8. None if absent or malformed.
+
+    Values may be negative. Tabs may be literal, \\t or \\09, and a trailing \\0D\\0A is ignored.
+    """
     try:
         text = Path(path).read_text(encoding="utf-8", errors="replace")
     except OSError:
@@ -27,9 +30,10 @@ def read_tx_loss(path: Path) -> list[float] | None:
     m = re.search(r"^\s*Tx Loss\s*=\s*\"?([^\"\r\n]*)\"?\s*$", text, re.M)
     if not m:
         return None
-    raw = m.group(1).replace("\\09", "\t").replace("\\t", "\t")
+    raw = m.group(1).replace("\\0D", "").replace("\\0A", "")     # LabVIEW's escaped line ending
+    raw = raw.replace("\\09", "\t").replace("\\t", "\t")
     try:
-        values = [float(v) for v in raw.split("\t") if v.strip()]
+        values = [float(v) for v in raw.split() if v.strip()]
     except ValueError:
         return None
     return values if len(values) == CHANNELS else None
@@ -38,13 +42,14 @@ def read_tx_loss(path: Path) -> list[float] | None:
 def write_tx_loss(path: Path, values: list[float]) -> None:
     """Replace the Tx Loss line, keeping the rest of the ini.
 
-    The tab is written as LabVIEW's \\09 escape. This is not yet checked against
-    an ini saved by the station.
+    Written the way LabVIEW saves a tab-delimited array: values to 3 decimals, tabs as
+    the \\09 escape and a trailing \\0D\\0A. The trailing escape is confirmed from a
+    station file; the \\09 spelling of the tab is not (a literal tab is read too).
     """
     if len(values) != CHANNELS:
         raise ValueError(f"Tx Loss needs {CHANNELS} values, got {len(values)}")
     path = Path(path)
-    line = 'Tx Loss="' + "\\09".join(f"{v:.2f}" for v in values) + '"'
+    line = 'Tx Loss="' + "\\09".join(f"{v:.3f}" for v in values) + '\\0D\\0A"'
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:

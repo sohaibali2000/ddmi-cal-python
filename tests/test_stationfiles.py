@@ -37,6 +37,21 @@ def test_tx_loss_accepts_each_tab_spelling(tmp_path, separator):
     assert stationfiles.read_tx_loss(path) == LOSSES
 
 
+def test_tx_loss_reads_the_format_seen_on_a_station(tmp_path):
+    # as in the vendor's system.ini: spaces around "=", negative values, escaped CR LF at the end
+    path = tmp_path / "system.ini"
+    path.write_text('[Data]\nTx Loss = "-0.384\t-0.188\t-0.097\t0.085\t0.854\t0.949\t1.141\t1.168\\0D\\0A"\n')
+    assert stationfiles.read_tx_loss(path) == [-0.384, -0.188, -0.097, 0.085, 0.854, 0.949, 1.141, 1.168]
+
+
+def test_tx_loss_is_written_with_three_decimals_and_the_labview_line_ending(tmp_path):
+    path = tmp_path / "x.ini"
+    stationfiles.write_tx_loss(path, [-0.384, -0.188, -0.097, 0.085, 0.854, 0.949, 1.141, 1.168])
+    line = [l for l in path.read_text().splitlines() if l.startswith("Tx Loss")][0]
+    assert line.startswith('Tx Loss="-0.384\\09-0.188') and line.endswith('1.168\\0D\\0A"')
+    assert stationfiles.read_tx_loss(path)[0] == -0.384
+
+
 def test_tx_loss_with_wrong_count_is_ignored(tmp_path):
     path = tmp_path / "x.ini"
     path.write_text('[Data]\nTx Loss="1.0\t2.0"\n')

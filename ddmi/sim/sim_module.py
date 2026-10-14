@@ -35,7 +35,7 @@ class SimModule:
         self.g_tx = [4.1 * rng.uniform(0.9, 1.1) for _ in range(LANES)]
         self.g_mpd = [2.58 * rng.uniform(0.9, 1.1) for _ in range(LANES)]
         self.dark = [rng.uniform(30, 60) for _ in range(LANES)]
-        self.g_rx = [39.6 * rng.uniform(0.95, 1.05) for _ in range(LANES)]
+        self.g_rx = [1.0 * rng.uniform(0.95, 1.05) for _ in range(LANES)]   # counts per uW -> slope ~10
         self.temp_c = 42.5
         if fault == "dead_tx_lane":
             self.insertion[fault_lane - 1] = 1e-4
@@ -117,7 +117,7 @@ class SimModule:
         uw = 10 ** (self.rx_in_dbm(lane + 1) / 10) * 1000
         if self.fault == "rx_nonlinear" and lane == self.fault_lane - 1:
             uw = uw / (1 + uw / 800)
-        return max(0, round(self.g_rx[lane] * uw + self.rng.gauss(0, 3)))
+        return max(0, round(self.g_rx[lane] * uw + self.rng.gauss(0, 0.2)))
 
     def _vcc_adc(self) -> int:
         return round(8000 * self.v_module + self.rng.gauss(0, 1))

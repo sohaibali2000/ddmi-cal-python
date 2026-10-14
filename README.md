@@ -65,8 +65,9 @@ the local settings file `config/ui_settings.json` and the decoded LabVIEW XML
 These came out of the LabVIEW decode but are not confirmed. Each one is a setting in
 `config/`, not a fixed rule in code, and none may be relied on for a real module:
 
-1. Operating-point fractions `[0.65, 0.56, 0.50, 0.44]`: whether `Peak Search.vi` uses
-   x or 1 − x, of the peak or of the peak−valley span (`mpd_scan.op_point_mode`).
+1. Operating-point fractions `[0.65, 0.56, 0.50, 0.44]`: set to 1 − x of the peak, giving
+   35 / 44 / 50 / 56 % of peak (4.5 / 3.5 / 3.0 / 2.5 dB below it), with Tops_Mid from the
+   3.5 dB and 3.0 dB points. Not yet confirmed in `Peak Search.vi` (`mpd_scan.op_point_mode`).
 2. Calibration storage on pages EC/ED/EB: float32, big-endian and "EC = CH1–4" are assumptions.
 3. AWS mode registers: page/byte order, the values written, and any password.
 4. IBias scaling (×100 assumed), the IBiasPID restore value (15 or 3), TOPPID on-value.
@@ -76,7 +77,11 @@ These came out of the LabVIEW decode but are not confirmed. Each one is a settin
 8. The exact probing order of the TX-disable search, and the Adjust Power logic (not ported).
 9. How LabVIEW writes the tab separator in the `Tx Loss` line of `system_Data.ini`
    (written here as `\09`; a literal tab and `\t` are also accepted when reading).
-10. Instrument models and addresses, official MES limits, RX slope units (that limit is not applied).
+10. Instrument models and addresses, and the official MES limits. The RX slope limit of 5–30
+    is applied, but it depends on the module's RSSI units and must be checked against real data.
+11. Auto Adjust Vcc is described as reading the voltage back from both the supply and the
+    module over I²C; this port uses one "voltage at the module" reading from the bench.
+12. The MES fixture check (TOOL) is not ported.
 
 Two things this port does that LabVIEW may not: it returns the module to a safe state
 (TX enabled, reset, supply at nominal) after an abort or error, and it does not upload

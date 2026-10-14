@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Callable
 
 # Result item -> key in the product config `limits` (and in the MES spec).
-# The RX slope limit (limits.rx_slope) is not applied: its units are unverified.
 LIMIT_KEYS = {
+    "Rxp_Slope": "rx_slope",
     "Tx_Disable(dBm)": "tx_disable_dbm",
     "dTxP(dB)": "dtxp_db",
     "dRxP(dB)": "rx_check_error_db",

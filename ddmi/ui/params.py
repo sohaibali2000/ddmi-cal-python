@@ -1,7 +1,7 @@
 """Result rows, limits and equipment list shown by the UI.
 
 Limits come from config/product_aws_2xfr4.yaml (placeholders until the MES
-spec replaces them). The RX slope limit is not applied: its units are unverified.
+spec replaces them).
 """
 from ..config import load_product
 from ..flow import STAGES

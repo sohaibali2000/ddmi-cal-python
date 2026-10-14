@@ -62,6 +62,25 @@ def test_operating_points_lie_between_peak_and_valley_and_hit_their_level():
     assert mid == pytest.approx((points[0.50] + points[0.44]) / 2)
 
 
+def test_shipped_config_gives_the_documented_operating_points():
+    # 35 / 44 / 50 / 56 % of peak (4.5 / 3.5 / 3.0 / 2.5 dB below it); Tops_Mid from the
+    # 3.5 dB and 3.0 dB points, about 3.25 dB below the peak (about 47 %).
+    from ddmi.config import load_product
+    cfg = load_product()["mpd_scan"]
+    levels = sorted(tops.level_for_fraction(f, 1000, 0, cfg["op_point_mode"])
+                    for f in cfg["op_point_fractions"])
+    assert levels == pytest.approx([350, 440, 500, 560])
+    mid_levels = sorted(tops.level_for_fraction(f, 1000, 0, cfg["op_point_mode"])
+                        for f in cfg["tops_mid_from"])
+    assert mid_levels == pytest.approx([440, 500])
+
+    volts, txmon = _lane()
+    points = tops.operating_points(volts, txmon, cfg["op_point_fractions"], cfg["op_point_mode"])
+    mid = tops.tops_mid(points, cfg["tops_mid_from"])
+    below_peak_db = 10 * math.log10(_txmon_at(mid) / max(txmon))
+    assert below_peak_db == pytest.approx(-3.25, abs=0.1)
+
+
 def _leak(valley_v):
     return lambda v: -45 + 4000 * (v - valley_v) ** 2
 
