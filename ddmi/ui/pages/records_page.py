@@ -37,7 +37,7 @@ class _RecordDialog(QDialog):
             table.insertRow(r)
             table.setItem(r, 0, QTableWidgetItem(param))
             for key, cell in cells.items():
-                item = QTableWidgetItem(str(cell.get("value")))
+                item = QTableWidgetItem("NaN" if cell.get("value") is None else str(cell.get("value")))
                 item.setTextAlignment(Qt.AlignCenter)
                 item.setForeground(QColor(0, 128, 0) if cell.get("ok") else QColor(255, 0, 0))
                 if key == "module":

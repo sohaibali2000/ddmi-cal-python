@@ -1,17 +1,15 @@
-"""Files the UI reads and writes: settings, Tx Loss, RX tables, run records."""
+"""Files the UI reads and writes: its own settings, Tx Loss, RX tables, saved run records."""
 from __future__ import annotations
 
 import copy
 import json
-import re
 from pathlib import Path
 
+from .. import stationfiles
 from . import params
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG_DIR = ROOT / "config"
-STATION_DIR = ROOT / "station_data"
-RESULTS_DIR = ROOT / "results"
 
 DEFAULT_SETTINGS = {
     "run": {
@@ -68,104 +66,42 @@ class SettingsStore:
 
 
 class LossStore:
-    """Tx Loss in the LabVIEW station ini: [Data] Tx Loss="v1<tab>...<tab>v8", CH1->CH8.
+    """Tx Loss per slot, in the LabVIEW station ini (see ddmi.stationfiles)."""
 
-    Slot 1 uses system_Data.ini and slot N uses system_DataN.ini, as the Left/Right
-    LabVIEW stations do. The tab is written as LabVIEW's \\09 escape; a literal tab
-    or \\t is accepted when reading. Check this against an ini saved by the station.
-    """
-
-    KEY = "Tx Loss"
+    def __init__(self, base: Path):
+        self.base = Path(base)
 
     def path(self, slot_id: int) -> Path:
-        suffix = "" if slot_id == 1 else str(slot_id)
-        return STATION_DIR / f"system_Data{suffix}.ini"
+        return stationfiles.tx_loss_path(slot_id, self.base)
 
     def get(self, slot_id: int) -> list[float] | None:
-        try:
-            text = self.path(slot_id).read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            return None
-        m = re.search(r"^\s*Tx Loss\s*=\s*\"?([^\"\r\n]*)\"?\s*$", text, re.M)
-        if not m:
-            return None
-        raw = m.group(1).replace("\\09", "\t").replace("\\t", "\t")
-        try:
-            values = [float(v) for v in raw.split("\t") if v.strip()]
-        except ValueError:
-            return None
-        return values if len(values) == params.CHANNELS else None
+        return stationfiles.read_tx_loss(self.path(slot_id))
 
     def set(self, slot_id: int, values: list[float]):
-        path = self.path(slot_id)
-        line = f'{self.KEY}="' + "\\09".join(f"{v:.2f}" for v in values) + '"'
-        try:
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
-            lines = []
-        for i, old in enumerate(lines):
-            if re.match(r"\s*Tx Loss\s*=", old):
-                lines[i] = line
-                break
-        else:
-            if not any(l.strip() == "[Data]" for l in lines):
-                lines.append("[Data]")
-                lines.append(line)
-            else:
-                lines.insert(next(i for i, l in enumerate(lines) if l.strip() == "[Data]") + 1, line)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("\r\n".join(lines) + "\r\n", encoding="utf-8", newline="")
+        stationfiles.write_tx_loss(self.path(slot_id), values)
 
 
 class RxTableStore:
-    """CHn_Rx_calibration.txt: one row per step, Att / Power (-dBm, positive) / Diff."""
+    """CHn_Rx_calibration.txt per slot (see ddmi.stationfiles)."""
+
+    def __init__(self, base: Path):
+        self.base = Path(base)
 
     def dir(self, slot_id: int) -> Path:
-        return STATION_DIR / "rx_tables" / f"slot{slot_id}"
-
-    def file(self, slot_id: int, ch: int, folder: Path | None = None) -> Path:
-        return (folder or self.dir(slot_id)) / f"CH{ch}_Rx_calibration.txt"
+        return stationfiles.rx_table_dir(slot_id, self.base)
 
     def load(self, slot_id: int, folder: Path | None = None) -> dict[int, list[tuple[float, float]]]:
-        table = {}
-        for ch in range(1, params.CHANNELS + 1):
-            rows = []
-            try:
-                text = self.file(slot_id, ch, folder).read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            for line in text.splitlines():
-                parts = line.split()
-                try:
-                    rows.append((float(parts[0]), float(parts[1])))
-                except (IndexError, ValueError):
-                    continue
-            if rows:
-                table[ch] = rows
-        return table
+        return stationfiles.read_rx_rows(folder or self.dir(slot_id))
 
     def save(self, slot_id: int, table: dict[int, list[tuple[float, float]]]):
-        self.dir(slot_id).mkdir(parents=True, exist_ok=True)
-        for ch, rows in table.items():
-            text = "".join(f"{att:.2f}\t{p:.2f}\t{p - att:.2f}\r\n" for att, p in rows)
-            self.file(slot_id, ch).write_text(text, encoding="utf-8", newline="")
+        stationfiles.write_rx_rows(self.dir(slot_id), table)
 
 
 class RecordStore:
-    def __init__(self, root: Path = RESULTS_DIR):
-        self.root = root
+    """Reads the records and logs the runner saves under the results folder."""
 
-    def save(self, record: dict, log_lines: list[str]) -> Path:
-        stamp = record["start_time"].replace(":", "").replace("-", "").replace(" ", "_")
-        name = f"{record['sn'] or 'NOSN'}_{stamp}_slot{record['slot']}"
-        log_path = self.root / "logs" / f"{name}.log"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_path.write_text("\n".join(log_lines) + "\n", encoding="utf-8")
-        record["log_file"] = str(log_path.relative_to(self.root))
-        rec_path = self.root / "records" / f"{name}.json"
-        rec_path.parent.mkdir(parents=True, exist_ok=True)
-        rec_path.write_text(json.dumps(record, indent=2), encoding="utf-8")
-        return rec_path
+    def __init__(self, root: Path):
+        self.root = Path(root)
 
     def load_all(self) -> list[dict]:
         records = []

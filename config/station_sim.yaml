@@ -9,3 +9,4 @@ attenuator: {type: sim, units: 2}  # CH1-4 on unit 1, CH5-8 on unit 2 (V6.8 uses
 tx_loss_file: station_data/system_Data.ini
 rx_table_dir: station_data/rx_tables
 results_dir: results
+time_scale: 0.1                    # simulator only: shrink every wait (1.0 = real timing)

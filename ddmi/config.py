@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG_DIR = ROOT / "config"
 
 OP_POINT_MODES = ("x_of_peak", "one_minus_x_of_peak", "x_of_span", "one_minus_x_of_span")
+DDMI_CAL_PARTS = ("tx", "rx", "vcc", "temp")
 INSTRUMENTS = ("i2c", "power_supply", "power_meter", "opt_switch", "attenuator")
 
 
@@ -86,7 +87,12 @@ def validate_product(cfg: dict) -> dict:
     _number(cfg, "mpd_scan.setpoint_scale", 1)
     _number(cfg, "mpd_scan.scan_attempts", 1)
 
+    order = _get(cfg, "flow.ddmi_cal_order")
+    if not isinstance(order, list) or sorted(order) != sorted(DDMI_CAL_PARTS):
+        raise ConfigError(f"flow.ddmi_cal_order must list each of {DDMI_CAL_PARTS} once, got {order!r}")
+
     _number(cfg, "tx_disable.step_v", 1e-6)
+    _number(cfg, "tx_disable.settle_s", 0)
     _number(cfg, "tx_disable.max_steps", 1)
     _range(cfg, "tx_disable.limit_dbm")
 
@@ -100,6 +106,7 @@ def validate_product(cfg: dict) -> dict:
     if p1 == p2:
         raise ConfigError("rx_cal.points_dbm needs two different powers")
     _number(cfg, "rx_cal.check_dbm")
+    _numbers(cfg, "rx_cal.wavelengths_nm", int(channels))
     _number(cfg, "rx_cal.settle_s", 0)
 
     _number(cfg, "vcc.nominal_v", 0)
@@ -126,6 +133,8 @@ def validate_station(cfg: dict) -> dict:
         entry = _get(cfg, name)
         if not isinstance(entry, dict) or not isinstance(entry.get("type"), str):
             raise ConfigError(f"{name} must be a mapping with a 'type'")
+    if "time_scale" in cfg:
+        _number(cfg, "time_scale", 0)
     for name in ("tx_loss_file", "rx_table_dir", "results_dir"):
         if not isinstance(_get(cfg, name), str):
             raise ConfigError(f"{name} must be a path")

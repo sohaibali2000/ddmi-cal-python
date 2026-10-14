@@ -4,14 +4,19 @@ Limits come from config/product_aws_2xfr4.yaml (placeholders until the MES
 spec replaces them). The RX slope limit is not applied: its units are unverified.
 """
 from ..config import load_product
+from ..flow import STAGES
+from ..results import limits_from
 
-CHANNELS = 8
+_product = load_product()
+_rx = _product["rx_cal"]
+
+CHANNELS = _product["channels"]
 MAX_SLOTS = 4
 
 PLANS = ["DDMI Cal (V6.8, AWS 2xFR4)"]
 
 # Dashboard step lights, in run order.
-STEPS = ["Startup", "Scan MPD", "TX Cal", "RX Cal", "VCC Cal", "Final"]
+STEPS = STAGES
 
 TX_ROWS = [
     "Tops_Setpoint", "Tops_off(V)", "Tx_Disable(dBm)",
@@ -19,9 +24,9 @@ TX_ROWS = [
     "TxP(dBm)", "DDMI_TxP(dBm)", "dTxP(dB)",
 ]
 RX_ROWS = [
-    "RSSI@-2", "RSSI@-10",
+    *(f"RSSI@{p:g}" for p in _rx["points_dbm"]),
     "Rxp_Slope", "Rxp_Offset",
-    "DD_RxP@-6(dBm)", "dRxP(dB)",
+    f"DD_RxP@{_rx['check_dbm']:g}(dBm)", "dRxP(dB)",
 ]
 # Module-level items: one value per module, not per channel.
 DDMI_ROWS = [
@@ -33,15 +38,8 @@ DDMI_ROWS = [
 GROUPS = [("TX", TX_ROWS), ("RX", RX_ROWS), ("DDMI", DDMI_ROWS)]
 MODULE_LEVEL = set(DDMI_ROWS)
 
-_limits = load_product()["limits"]
-LIMITS = {
-    "Tx_Disable(dBm)": tuple(_limits["tx_disable_dbm"]),
-    "dTxP(dB)": tuple(_limits["dtxp_db"]),
-    "dRxP(dB)": tuple(_limits["rx_check_error_db"]),
-    "dVcc(V)": tuple(_limits["dvcc_v"]),
-    "DDMI_Temp(C)": tuple(_limits["ddmi_temp_c"]),
-}
-TX_LOSS_WARN_DB = _limits["tx_loss_warn_db"]
+LIMITS = limits_from(_product["limits"])
+TX_LOSS_WARN_DB = _product["limits"]["tx_loss_warn_db"]
 
 # key, label, models (from the LabVIEW driver VIs in the V6.8 project)
 EQUIPMENT = [
@@ -53,15 +51,10 @@ EQUIPMENT = [
     ("opt_switch", "Optical switch", ["None", "Stelight OSW", "WG3023"]),
 ]
 
-SIM_FAULTS = ["None", "Dead TX lane (CH3)", "RX offset (CH6)", "SN mismatch"]
-
-
-def check(param: str, value) -> bool:
-    lim = LIMITS.get(param)
-    if lim is None or not isinstance(value, (int, float)):
-        return True
-    return lim[0] <= value <= lim[1]
-
-
-def item_name(param: str, ch: int) -> str:
-    return param if ch == 0 else f"{param}_CH{ch}"
+# Settings label -> simulator fault name
+SIM_FAULTS = {
+    "None": "none",
+    "Dead TX lane (CH3)": "dead_tx_lane",
+    "RX non-linear (CH3)": "rx_nonlinear",
+    "SN mismatch": "sn_mismatch",
+}

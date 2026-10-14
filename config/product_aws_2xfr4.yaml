@@ -4,6 +4,10 @@ customer: AWS
 channels: 8
 lasers: 4                          # lane n and n+4 share laser n
 
+flow:
+  # VERIFY: order of the DDMI_Cal.vi frames (frame numbers are temp 0, vcc 1, tx 2, rx 3).
+  ddmi_cal_order: [tx, rx, vcc, temp]
+
 mpd_scan:
   vtops_start: 0.5                 # V (Acacia 0.0-2.0/0.01; others 0.0-1.5/0.02)
   vtops_stop: 3.0
@@ -19,6 +23,7 @@ mpd_scan:
 tx_disable:
   step_v: 0.01
   max_steps: 4
+  settle_s: 0.2                    # VERIFY: wait after each tops_off step (not in the build map)
   extra_steps_if_above_dbm: null   # V12: -18 dBm -> 5 more steps
   limit_dbm: [-60, -16]
 
@@ -30,6 +35,7 @@ tx_cal:
 rx_cal:
   points_dbm: [-2, -10]
   check_dbm: -6
+  wavelengths_nm: [1271, 1291, 1311, 1331, 1271, 1291, 1311, 1331]   # VERIFY against OVA Set Wavelength.vi
   settle_s: 1.0                    # VERIFY (computed delay in code)
 
 vcc:

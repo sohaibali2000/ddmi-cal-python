@@ -1,0 +1,68 @@
+# AWS register map (build map Section 5). Multi-byte values are big-endian.
+#
+# conf: STD        standard CMIS, safe
+#       CODE       decoded from IIC.vi, high confidence
+#       UNVERIFIED decoded, but address, byte order, format or value is not confirmed.
+#                  The write guard refuses these on real hardware unless
+#                  --allow-unverified is given. Confirm with firmware first.
+#
+# fmt:  u8, u16, s16_div256, u16_scaled (value = raw * scale), ascii,
+#       u16_array, u16_scaled_array (raw = value * scale),
+#       volt_array (raw = V / full_scale * 4095), f32_array
+
+registers:
+  # --- standard CMIS ---
+  R_DTEMP:        {page: 0x00, byte: 0x0E, len: 2,  fmt: s16_div256, conf: STD}
+  R_DVCC:         {page: 0x00, byte: 0x10, len: 2,  fmt: u16_scaled, scale: 0.0001, conf: STD}   # 100 uV -> V
+  R_Information:  {page: 0x00, byte: 0x94, len: 34, fmt: ascii, conf: STD}    # PN 148-163, rev 164-165, SN 166-181
+  R_DTXP:         {page: 0x11, byte: 0x9A, len: 16, fmt: u16_array, conf: STD}   # 0.1 uW
+  R_DRXP:         {page: 0x11, byte: 0xBA, len: 16, fmt: u16_array, conf: STD}   # 0.1 uW
+  R_DBias:        {page: 0x11, byte: 0xAA, len: 16, fmt: u16_array, conf: STD}
+  R_Los:          {page: 0x11, byte: 0x93, len: 1,  fmt: u8, conf: STD}
+  W_Reset:        {page: 0x00, byte: 0x1A, len: 1,  fmt: u8, conf: STD}          # write 0x08
+  W_TXDis:        {page: 0x10, byte: 0x82, len: 1,  fmt: u8, conf: STD}          # bit per lane; 0xFF all off, 0x00 all on
+
+  # --- raw monitors (vendor page F3) ---
+  R_TXMON:        {page: 0xF3, byte: 0x86, len: 16, fmt: u16_array, conf: CODE}
+  R_MPD_OUT:      {page: 0xF3, byte: 0xF0, len: 16, fmt: u16_array, conf: CODE}
+  R_RSSI:         {page: 0xF3, byte: 0xA6, len: 16, fmt: u16_array, conf: CODE}
+  R_VCCADC:       {page: 0xF3, byte: 0x84, len: 2,  fmt: u16, conf: CODE}
+
+  # --- bias and TOPS ---
+  IBias:          {page: 0xE9, byte: 0xC0, len: 8,  fmt: u16_scaled_array, scale: 100, conf: UNVERIFIED}  # 4 lasers, mA; scaling: constant 100 seen
+  W_IBiasPID:     {page: 0xE9, byte: 0xD0, len: 1,  fmt: u8, conf: UNVERIFIED}   # 0 = loop off; restore 15 (or 3)
+  Vtops:          {page: 0xE9, byte: 0xA0, len: 16, fmt: volt_array, full_scale: 5.0, conf: CODE}
+  W_TOPPID:       {page: 0xE8, byte: 0x80, len: 1,  fmt: u8, conf: UNVERIFIED}   # TOPS loop on/off; on-value unconfirmed
+  tops_setpoint:  {page: 0xE8, byte: 0x82, len: 16, fmt: u16_array, conf: CODE}
+  tops_off:       {page: 0xE8, byte: 0xCC, len: 16, fmt: volt_array, full_scale: 5.0, conf: CODE}
+  tops_room:      {page: 0xE8, byte: 0xAC, len: 16, fmt: volt_array, full_scale: 5.0, conf: CODE}
+
+  # --- calibration storage: 4 slopes then 4 offsets per page, 4 bytes per value ---
+  # UNVERIFIED: float32 and big-endian are assumptions, and so is "EC = CH1-4, ED = CH5-8".
+  DTXPCal_A:      {page: 0xEC, byte: 0xC0, len: 32, fmt: f32_array, conf: UNVERIFIED}
+  DTXPCal_B:      {page: 0xED, byte: 0xC0, len: 32, fmt: f32_array, conf: UNVERIFIED}
+  DRXPCal_A:      {page: 0xEC, byte: 0x90, len: 32, fmt: f32_array, conf: UNVERIFIED}
+  DRXPCal_B:      {page: 0xED, byte: 0x90, len: 32, fmt: f32_array, conf: UNVERIFIED}
+  VccCal:         {page: 0xEB, byte: 0x90, len: 8,  fmt: f32_array, conf: UNVERIFIED}   # slope, offset
+
+  # --- mode registers: page/byte order unconfirmed (build map 5.5) ---
+  AWS_Test_Mode:      {page: 0xEE, byte: 0x80, len: 1, fmt: u8, conf: UNVERIFIED}   # 1 = enter test mode
+  TestMode:           {page: 0xEE, byte: 0x83, len: 1, fmt: u8, conf: UNVERIFIED}   # 0xCC to exit
+  DSP_TestMode:       {page: 0xCF, byte: 0x81, len: 1, fmt: u8, conf: UNVERIFIED}   # W_Debug_AWS = 1, W_Nomal_AWS = 0
+  DSP_OperatingMode:  {page: 0xCF, byte: 0x86, len: 1, fmt: u8, conf: UNVERIFIED}   # W_Daul_AWS = 5, W_Mission_AWS = 0
+  TempOffFunc:        {page: 0xFE, byte: 0x98, len: 1, fmt: u8, conf: UNVERIFIED}   # 0x98 or 0x95; disable value unknown
+
+# Values the flow writes that are themselves unconfirmed.
+values:
+  reset: 0x08
+  toppid_off: 0
+  toppid_on: 1
+  ibiaspid_off: 0
+  ibiaspid_restore: 15
+  aws_test_mode_enter: 1
+  test_mode_exit: 0xCC
+  dsp_debug: 1
+  dsp_normal: 0
+  dsp_dual: 5
+  dsp_mission: 0
+  temp_off_func_disable: 0

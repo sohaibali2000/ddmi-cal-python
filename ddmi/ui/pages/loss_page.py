@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
 )
 
 from .. import params
-from ..sim_worker import TxLossWorker
+from ..workers import TxLossWorker
 from ..state import Engine
 from ..widgets import CONSOLE_STYLE
 from .rx_att_table_popup import RxAttTablePopup
@@ -79,7 +79,7 @@ class LossPage(QWidget):
             return
         self.btn_tx_cal.setEnabled(False)
         self.btn_tx_cal.setText("Calibrating...")
-        self._worker = TxLossWorker(slot_id)
+        self._worker = TxLossWorker(slot_id, self.engine.slot_station_cfg(slot_id), self.engine.product)
         self._worker.log.connect(self._on_worker_log)
         self._worker.done.connect(self._on_tx_cal_done)
         self._worker.start()
@@ -123,7 +123,7 @@ class LossPage(QWidget):
     def refresh_from_state(self):
         slot_id = self._slot_id()
         store = self.engine.loss_store
-        self.lbl_file.setText(f"Tx Loss file: station_data/{store.path(slot_id).name}")
+        self.lbl_file.setText(f"Tx Loss file: {store.path(slot_id).name}")
         tx_loss = store.get(slot_id)
         rx_table = self.engine.rx_tables.load(slot_id)
         for ch in range(1, params.CHANNELS + 1):

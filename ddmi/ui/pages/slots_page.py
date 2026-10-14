@@ -97,7 +97,7 @@ class SlotsPage(QWidget):
             for ch in range(1, params.CHANNELS + 1):
                 data = chans.get(0 if module else ch)
                 cell = self.table.item(row, ch)
-                cell.setText("" if data is None else str(data["value"]))
+                cell.setText("" if data is None else "NaN" if data["value"] is None else str(data["value"]))
                 if data is not None:
                     cell.setForeground(QColor(0, 128, 0) if data["ok"] else QColor(255, 0, 0))
                 if module:

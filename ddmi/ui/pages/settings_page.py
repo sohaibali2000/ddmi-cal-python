@@ -146,7 +146,8 @@ class SettingsPage(QWidget):
         self.cb_offline.setChecked(bool(run.get("offline", True)))
         self.cb_dry.setChecked(bool(run.get("dry_run", False)))
         self.cb_unverified.setChecked(bool(run.get("allow_unverified_writes", False)))
-        self.fault.setCurrentText(run.get("sim_fault", "None"))
+        fault = run.get("sim_fault", "None")
+        self.fault.setCurrentText(fault if fault in params.SIM_FAULTS else "None")
         self.station_id.setText(station.get("station_id", ""))
         self.slot_count.setCurrentText(str(station.get("slot_count", 2)))
         for (slot_id, key), (model, address, _status) in self._equip.items():

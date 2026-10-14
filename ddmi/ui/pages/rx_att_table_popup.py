@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
 )
 
 from .. import params
-from ..sim_worker import RxTableWorker
+from ..workers import RxTableWorker
 from ..state import Engine
 from ..widgets import CONSOLE_STYLE
 
@@ -106,7 +106,8 @@ class RxAttTablePopup(QDialog):
         self.btn_load.setEnabled(False)
         self.btn_start.setText("Calibrating...")
         self.progress.setValue(0)
-        self._worker = RxTableWorker(self.slot_id)
+        self._worker = RxTableWorker(self.slot_id, self.engine.slot_station_cfg(self.slot_id),
+                                     self.engine.product)
         self._worker.log.connect(self._on_log)
         self._worker.cell.connect(self._on_cell)
         self._worker.progress.connect(self.progress.setValue)

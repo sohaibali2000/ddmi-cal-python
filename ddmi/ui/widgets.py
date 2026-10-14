@@ -16,7 +16,8 @@ CONSOLE_STYLE = ("font-family: Consolas, monospace; font-size: 11px; "
                  "background: #111; color: #ddd; padding: 8px;")
 
 STATE_COLORS = {"PASS": "#218838", "FAIL": "#c82333", "RUNNING": "#b8860b",
-                "ABORTED": "#6c757d", "ERROR": "#c82333", "IDLE": "#555"}
+                "ABORTED": "#6c757d", "ERROR": "#c82333", "NOT_TESTED": "#c82333",
+                "IDLE": "#555"}
 
 
 class Led(QWidget):

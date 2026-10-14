@@ -59,7 +59,7 @@ class SlotCard(QFrame):
         sn_row = QHBoxLayout()
         sn_row.addWidget(QLabel("Scan SN:"))
         self.sn_edit = QLineEdit()
-        self.sn_edit.setPlaceholderText("Scan module SN (blank = use the simulated module's SN)")
+        self.sn_edit.setPlaceholderText("Scan module SN (blank = use the SN read from the module)")
         self.sn_edit.returnPressed.connect(self.start)
         sn_row.addWidget(self.sn_edit, 1)
         lay.addLayout(sn_row)
