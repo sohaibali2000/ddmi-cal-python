@@ -48,6 +48,14 @@ class RunContext:
         if self.abort.wait(seconds * self.time_scale):
             raise Aborted()
 
+    def pre_run(self, name: str, fallback: str):
+        """A register's value as read before the run (restored instead of a guessed constant);
+        the register map's named value when no backup was taken."""
+        values = self.meta.get("pre_run")
+        if values and name in values:
+            return values[name]
+        return self.module.regmap.value(fallback)
+
     def true_tx_powers(self) -> dict[int, float]:
         """true_dBm = meter + TxLoss[ch], all channels from one read of the 8-channel meter."""
         meter = self.bench.read_tx_powers()

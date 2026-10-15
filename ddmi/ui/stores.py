@@ -51,8 +51,12 @@ class SettingsStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(self.data, indent=2), encoding="utf-8")
 
+    force_slot_count: int | None = None     # set by the app on the real station (one DUT position)
+
     @property
     def slot_count(self) -> int:
+        if self.force_slot_count:
+            return self.force_slot_count
         n = int(self.data["station"].get("slot_count", 2))
         return max(1, min(params.MAX_SLOTS, n))
 

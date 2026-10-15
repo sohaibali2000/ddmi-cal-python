@@ -25,6 +25,11 @@ class MainWindow(QMainWindow):
         # DDMI_STATION selects another station file, e.g. config/station_lab.yaml.
         station_file = os.environ.get("DDMI_STATION", str(config.CONFIG_DIR / "station_sim.yaml"))
         self.engine = Engine(SettingsStore(), config.load_station(station_file))
+        real = not is_sim(self.engine.station_cfg)
+        if real:
+            # One DUT position on the real station: show only Slot-1 (not saved to the settings file).
+            self.engine.settings.force_slot_count = 1
+            self.setWindowTitle("800G DDMI Cal - AWS 2xFR4 - REAL HARDWARE")
 
         self.tabs = QTabWidget()
         self.page_dashboard = DashboardPage(self.engine)
@@ -43,10 +48,15 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.page_runs, "Runs")
         self.setCentralWidget(self.tabs)
 
-        if is_sim(self.engine.station_cfg):
+        if not real:
             badge = QLabel("  SIMULATOR MODE - no hardware connected, all values are simulated  ")
             badge.setStyleSheet("background: #fff3cd; color: #7a5b00; font-weight: 700; padding: 3px;")
-            self.statusBar().addPermanentWidget(badge)
+        else:
+            run = self.engine.settings.data["run"]
+            mode = "DRY RUN - nothing is written" if run.get("dry_run") else "WRITES ENABLED"
+            badge = QLabel(f"  REAL HARDWARE ({os.path.basename(station_file)}) - {mode}  ")
+            badge.setStyleSheet("background: #c82333; color: white; font-weight: 700; padding: 3px;")
+        self.statusBar().addPermanentWidget(badge)
 
     def closeEvent(self, event):
         if self.engine.any_running():

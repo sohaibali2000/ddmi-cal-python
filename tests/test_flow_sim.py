@@ -72,13 +72,47 @@ def test_record_log_and_csv_are_saved(station_cfg, product):
 
 def test_module_is_left_calibrated_and_in_normal_operation(station_cfg, product):
     station = build_station(station_cfg, sim_sn="AWS0001")
+    before = dict(station.sim_module.modes)
     run(station_cfg, product, station=station)
     sim = station.sim_module
     assert sim.tops_loop and sim.bias_loop and sim.tx_dis == 0
     assert sim.vcc_cal[0] == pytest.approx(1.25, abs=0.01)
-    assert sim.modes == {"AWS_Test_Mode": 1, "TestMode": 0xCC, "DSP_TestMode": 0,
-                         "DSP_OperatingMode": 0, "TempOffFunc": 0}
+    assert sim.modes == before                  # mode registers end exactly as they started
     assert station.sim_bench.v_set == pytest.approx(3.3, abs=0.1)
+
+
+def test_labview_mode_cleanup_is_still_available(station_cfg, product):
+    product["showpf"] = {"mode_cleanup": "labview"}
+    station = build_station(station_cfg, sim_sn="AWS0001")
+    run(station_cfg, product, station=station)
+    assert station.sim_module.modes == {"AWS_Test_Mode": 1, "TestMode": 0xCC, "DSP_TestMode": 0,
+                                        "DSP_OperatingMode": 0, "TempOffFunc": 0}
+
+
+def test_registers_are_backed_up_before_the_run_and_can_be_restored(station_cfg, product):
+    import json
+
+    from ddmi import backup
+
+    station = build_station(station_cfg, sim_sn="AWS0001")
+    sim = station.sim_module
+    original = (list(sim.tx_cal[0]), list(sim.tx_cal[1]), sim.vcc_cal, list(sim.setpoint))
+    record = run(station_cfg, product, station=station)
+    assert record["result"] == "PASS"
+    saved = json.loads(Path(record["backup_file"]).read_text())
+    assert saved["sn"] == "AWS0001" and set(saved["registers"]) == set(backup.BACKUP_REGISTERS)
+    assert (list(sim.tx_cal[0]), sim.vcc_cal) != (original[0], original[2])     # the run changed them
+    station.module.log = lambda _t: None
+    backup.restore(station.module, saved["registers"])
+    assert sim.tx_cal[0] == pytest.approx(original[0]) and sim.tx_cal[1] == pytest.approx(original[1])
+    assert sim.vcc_cal == pytest.approx(original[2]) and sim.setpoint == original[3]
+
+
+def test_loops_are_restored_to_the_values_read_before_the_run(station_cfg, product):
+    record = run(station_cfg, product)
+    lines = (Path(station_cfg["results_dir"]) / record["log_file"]).read_text().splitlines()
+    toppid_writes = [l for l in lines if "I2C W W_TOPPID" in l]
+    assert toppid_writes[-1].endswith("-> ff")      # back to 0xFF, as read, not to a constant 1
 
 
 def test_dead_tx_lane_fails(station_cfg, product):
@@ -231,3 +265,28 @@ def test_minimum_attenuation_protects_the_receiver(station_cfg, product):
     record = run(station_cfg, product)
     assert record["result"] == "FAIL"
     assert "below the station minimum" in record["failing_items"][0]
+
+
+def test_dry_run_never_touches_mes(station_cfg, product):
+    station = build_station(station_cfg, sim_sn="AWS0001", dry_run=True)
+    mes = FakeMes()
+    record = run(station_cfg, product, station=station, mes=mes)
+    assert mes.calls == []
+    assert record["mes"] == {"checked_in": False, "saved": False, "checked_out": False}
+    assert (Path(station_cfg["results_dir"]) / "records").exists()      # still recorded locally
+
+
+def test_ignored_vendor_writes_leave_every_calibration_untouched(station_cfg, product):
+    """The 2026-10-15 lab run: the module discarded every vendor-page write."""
+    station = build_station(station_cfg, sim_sn="AWS0001", fault="vendor_writes_ignored")
+    sim = station.sim_module
+    before = (list(sim.tx_cal[0]), list(sim.tx_cal[1]), list(sim.rx_cal[0]), sim.vcc_cal,
+              list(sim.setpoint), list(sim.tops_off))
+    record = run(station_cfg, product, station=station)
+    after = (list(sim.tx_cal[0]), list(sim.tx_cal[1]), list(sim.rx_cal[0]), sim.vcc_cal,
+             list(sim.setpoint), list(sim.tops_off))
+    # Caught on the first calibration read-back: the run stops instead of reporting
+    # a calibration that never reached the module.
+    assert record["result"] == "ERROR"
+    assert after == before
+    assert any("discarded the write" in f for f in record["failing_items"]), record["failing_items"]

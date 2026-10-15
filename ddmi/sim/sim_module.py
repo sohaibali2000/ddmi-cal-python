@@ -9,7 +9,7 @@ from ..hw.regmap import RegMap
 LANES = 8
 LASERS = 4
 NORMAL_BIAS_MA = 110.0
-FAULTS = ("none", "dead_tx_lane", "rx_nonlinear", "sn_mismatch")
+FAULTS = ("none", "dead_tx_lane", "rx_nonlinear", "sn_mismatch", "vendor_writes_ignored")
 
 
 def _dbm(mw: float) -> float:
@@ -156,7 +156,7 @@ class SimModule:
         if name == "W_IBiasPID":
             return 15 if self.bias_loop else 0
         if name == "W_TOPPID":
-            return 1 if self.tops_loop else 0
+            return 0xFF if self.tops_loop else 0
         if name == "Vtops":
             return [self.lane_v(i) for i in lanes]
         if name == "tops_setpoint":
@@ -181,6 +181,8 @@ class SimModule:
         reg = self.regmap.at(page, byte)
         if reg is None or reg.length != len(data):
             return
+        if self.fault == "vendor_writes_ignored" and page >= 0x80 and byte >= 0x80:
+            return      # like the real module with only the read password entered
         name, value = reg.name, reg.decode(data)
         if name == "W_Reset":
             if value & 0x08:

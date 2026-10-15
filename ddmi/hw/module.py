@@ -11,6 +11,10 @@ class UnverifiedWriteError(RuntimeError):
     pass
 
 
+class WriteNotStoredError(RuntimeError):
+    pass
+
+
 class Module:
     def __init__(self, bus: I2CBus, regmap: RegMap, *, is_sim: bool, dry_run: bool = False,
                  allow_unverified: bool = False, log: Callable[[str], None] = lambda _t: None):
@@ -20,28 +24,37 @@ class Module:
         self.dry_run = dry_run
         self.allow_unverified = allow_unverified
         self.log = log
-        self.unlocked = False
+        self.unlock_level = 0           # 0 locked, 1 vendor pages readable, 2 also writable
+        self.writes_sent = 0            # settings actually written to the module (not the password)
 
     VENDOR_PAGES = 0x80     # pages 80h-FFh are vendor pages: locked until the password is entered
 
-    def unlock(self) -> None:
-        """Enter the vendor password (CMIS bytes 122-125). Needed again after a module reset.
+    @property
+    def unlocked(self) -> bool:
+        return self.unlock_level > 0
 
-        Sent even in a dry run: it changes no module setting, and without it the vendor
-        pages cannot be read at all.
+    def unlock(self, level: int = 1) -> None:
+        """Enter a vendor password (CMIS bytes 122-125): level 1 = read, level 2 = write.
+        Needed again after a module reset.
+
+        The read password is sent even in a dry run: it changes no module setting, and
+        without it the vendor pages cannot be read at all.
         """
-        if "vendor_password" not in self.regmap.values:
+        name = "vendor_write_password" if level >= 2 else "vendor_password"
+        if name not in self.regmap.values:
+            self.unlock_level = max(self.unlock_level, level)
             return
         reg = self.regmap["W_Password"]
-        self.bus.write(reg.page, reg.byte, reg.encode(self.regmap.value("vendor_password")))
-        self.log(f"I2C W W_Password [{reg.address}] (vendor password entry)")
+        self.bus.write(reg.page, reg.byte, reg.encode(self.regmap.value(name)))
+        self.log(f"I2C W W_Password [{reg.address}] (vendor {'write' if level >= 2 else 'read'} password entry)")
         if hasattr(self.bus, "forget_page"):
             self.bus.forget_page()
-        self.unlocked = True
+        self.unlock_level = level
 
-    def _ensure_unlocked(self, reg) -> None:
-        if reg.page >= self.VENDOR_PAGES and reg.byte >= 0x80 and not self.unlocked:
-            self.unlock()
+    def _ensure_unlocked(self, reg, write: bool = False) -> None:
+        needed = 2 if write else 1
+        if reg.page >= self.VENDOR_PAGES and reg.byte >= 0x80 and self.unlock_level < needed:
+            self.unlock(needed)
 
     def read(self, name: str):
         reg = self.regmap[name]
@@ -50,6 +63,12 @@ class Module:
         value = reg.decode(data)
         self.log(f"I2C R {name} [{reg.address}] = {data.hex()} -> {_show(value)}")
         return value
+
+    def read_raw(self, name: str) -> bytes:
+        """The register's bytes exactly as stored (used for the backup)."""
+        reg = self.regmap[name]
+        self._ensure_unlocked(reg)
+        return self.bus.read(reg.page, reg.byte, reg.length)
 
     def write(self, name: str, value) -> None:
         """The only way a value reaches the module.
@@ -69,13 +88,27 @@ class Module:
             raise UnverifiedWriteError(
                 f"refused write to unverified register {name} [{reg.address}]. "
                 "Confirm it with firmware, or pass --allow-unverified.")
-        self._ensure_unlocked(reg)
+        self._ensure_unlocked(reg, write=True)
         self.bus.write(reg.page, reg.byte, data)
+        self.writes_sent += 1
         self.log(f"I2C W {text}")
         if name == "W_Reset":
-            self.unlocked = False       # a reset locks the vendor pages again
+            self.unlock_level = 0       # a reset locks the vendor pages again
             if hasattr(self.bus, "forget_page"):
                 self.bus.forget_page()
+
+    def write_verified(self, name: str, value) -> None:
+        """Write, then read the bytes back. For storage registers (calibration) only: the
+        module acknowledges vendor-page writes it discards (e.g. with only the read password),
+        so a dropped write is only visible on read-back."""
+        self.write(name, value)
+        if self.dry_run:
+            return
+        reg = self.regmap[name]
+        if self.read_raw(name) != reg.encode(value):
+            raise WriteNotStoredError(
+                f"{name} [{reg.address}] read back different from what was written - the module "
+                "discarded the write (vendor write password not accepted?). Nothing more is written.")
 
     def write_value(self, name: str, value_name: str) -> None:
         """Write one of the named constants from the register map's `values`."""
@@ -91,8 +124,8 @@ class Module:
     def write_cal(self, name: str, slopes: list, offsets: list) -> None:
         """8 slope/offset pairs: CH1-4 to the _A page, CH5-8 to the _B page.
         Each page holds the 4 offsets first, then the 4 slopes (read from a real module)."""
-        self.write(f"{name}_A", list(offsets[:4]) + list(slopes[:4]))
-        self.write(f"{name}_B", list(offsets[4:]) + list(slopes[4:]))
+        self.write_verified(f"{name}_A", list(offsets[:4]) + list(slopes[:4]))
+        self.write_verified(f"{name}_B", list(offsets[4:]) + list(slopes[4:]))
 
     def read_cal(self, name: str) -> tuple[list, list]:
         """Returns (slopes, offsets), CH1 first."""
@@ -101,7 +134,7 @@ class Module:
 
     def write_vcc_cal(self, slope: float, offset: float) -> None:
         """VccCal holds the offset first, then the slope."""
-        self.write("VccCal", [offset, slope])
+        self.write_verified("VccCal", [offset, slope])
 
     def read_vcc_cal(self) -> tuple[float, float]:
         """Returns (slope, offset)."""

@@ -72,13 +72,14 @@ def cmd_probe(args) -> int:
     """Read-only hardware check: is a module on this USB-ISS port, and what is it."""
     from .hw.i2c_usbiss import UsbIssBus
     from .hw.module import Module
+    from .hw.ports import resolve_port
     from .hw.regmap import load_regmap
 
     regmap = load_regmap()
     ports = args.port or ["COM13", "COM14", "COM15", "COM16"]
     for port in ports:
         try:
-            with UsbIssBus(port, log=print) as bus:
+            with UsbIssBus(resolve_port(port), log=print) as bus:
                 if not bus.present():
                     print(f"{port}: no module")
                     continue
@@ -181,6 +182,37 @@ def cmd_calcheck(args) -> int:
     return 0
 
 
+def cmd_restore(args) -> int:
+    """Write a module register backup (taken by every run before its first write) back."""
+    import json
+
+    from . import backup
+    from .hw.i2c_usbiss import UsbIssBus
+    from .hw.module import Module
+    from .hw.ports import resolve_port
+    from .hw.regmap import load_regmap
+
+    saved = json.loads(Path(args.file).read_text(encoding="utf-8"))
+    with UsbIssBus(resolve_port(args.port)) as bus:
+        # Restoring the module's own earlier values, so unverified registers are allowed here.
+        module = Module(bus, load_regmap(), is_sim=False, allow_unverified=True, log=print)
+        sn = module.read("R_Information")[18:34].strip() if bus.read(0, 0x7F, 1)[0] == 0 else "?"
+        print(f"Backup of SN {saved['sn']} taken {saved['time']}; module on {bus.port} is SN {sn}")
+        if sn != saved["sn"] and not args.force:
+            print("SN does not match the backup - not restoring (use --force to override)")
+            return 2
+        if not args.yes and input(f"Write {len(saved['registers'])} registers back? [y/N] ").strip().lower() != "y":
+            print("Not restored")
+            return 1
+        try:
+            names = backup.restore(module, saved["registers"])
+            module.write_value("W_Reset", "reset")
+        finally:
+            bus.write(0, 0x7F, bytes([0]))
+    print(f"Restored {', '.join(names)} and reset the module")
+    return 0
+
+
 def cmd_rx_table(args) -> int:
     station_cfg = config.load_station(args.station)
     product = config.load_product(args.product)
@@ -242,6 +274,13 @@ def main(argv=None) -> int:
     calcheck = sub.add_parser("calcheck", help="read-only: work out how the module stores slope/offset")
     calcheck.add_argument("--port", default="usb-sn:00071351", help="DUT USB-ISS (COMx or usb-sn:...)")
     calcheck.set_defaults(func=cmd_calcheck)
+
+    rest = sub.add_parser("restore", help="write a module register backup back")
+    rest.add_argument("--file", required=True, help="backup file from results/backups")
+    rest.add_argument("--port", default="usb-sn:00071345", help="DUT USB-ISS (COMx or usb-sn:...)")
+    rest.add_argument("--yes", action="store_true", help="restore without asking")
+    rest.add_argument("--force", action="store_true", help="restore even if the module SN differs")
+    rest.set_defaults(func=cmd_restore)
 
     rx = sub.add_parser("rx-table", help="build the RX attenuation table")
     _common(rx)

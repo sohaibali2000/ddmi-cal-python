@@ -24,14 +24,27 @@ def tx_cal(ctx: RunContext) -> None:
                 points[ch].append((txmon[ch - 1], dbm_to_lin(power[ch])))
             ctx.log(f"bias {bias} mA: power {[round(power[ch], 2) for ch in ctx.channels]} dBm, TXMON {txmon}")
 
+        old_slopes, old_offsets = module.read_cal("DTXPCal")
+        min_step = cfg.get("min_txmon_change", 0.2)
         slopes, offsets = [], []
         for ch in ctx.channels:
+            (x1, _), (x2, _) = points[ch]
+            if abs(x2 - x1) < min_step * max(abs(x1), 1):
+                # The bias change hardly moved TXMON: a fit would be noise. Keep this lane's
+                # current calibration and fail it.
+                ctx.log(f"CH{ch}: TXMON {x1} -> {x2} between the two bias points - bias control had no "
+                        f"effect; keeping this lane's current TX calibration")
+                slopes.append(old_slopes[ch - 1])
+                offsets.append(old_offsets[ch - 1])
+                ctx.results.add("Txp_Slope", ch, None)
+                ctx.results.add("Txp_Offset", ch, None)
+                continue
             try:
                 slope, offset = two_point_fit(*points[ch])
             except ValueError as exc:
-                ctx.log(f"CH{ch}: TX fit failed ({exc})")
-                slopes.append(0.0)
-                offsets.append(0.0)
+                ctx.log(f"CH{ch}: TX fit failed ({exc}); keeping this lane's current TX calibration")
+                slopes.append(old_slopes[ch - 1])
+                offsets.append(old_offsets[ch - 1])
                 ctx.results.add("Txp_Slope", ch, None)
                 ctx.results.add("Txp_Offset", ch, None)
                 continue
@@ -44,7 +57,7 @@ def tx_cal(ctx: RunContext) -> None:
         ctx.log("W_DTXPCal written (8 slope/offset pairs)")
     finally:
         module.write("IBias", saved_bias)
-        module.write_value("W_IBiasPID", "ibiaspid_restore")
+        module.write("W_IBiasPID", ctx.pre_run("W_IBiasPID", "ibiaspid_restore"))
         module.write_value("W_Reset", "reset")
         ctx.log(f"bias restored, W_Reset, wait {cfg['after_reset_wait_s']} s")
     ctx.sleep(cfg["after_reset_wait_s"])

@@ -21,6 +21,7 @@ def _path(value: str) -> Path:
 class RunData:
     def __init__(self):
         self.meta = {"state": "IDLE"}
+        self.logs: list[str] = []                        # every log line of the current run
         self.results: dict[str, dict[int, dict]] = {}   # item -> ch -> {"value", "ok"}
         self.steps = {s: "idle" for s in params.STEPS}
         self.step_failed: set[str] = set()
@@ -89,7 +90,7 @@ class Engine(QObject):
     def abort_slot(self, slot_id: int):
         worker = self.workers.get(slot_id)
         if worker and self.is_running(slot_id):
-            self.log_line.emit(slot_id, "Abort requested...")
+            self._on_log(slot_id, "Abort requested...")
             worker.abort()
 
     def shutdown(self):
@@ -100,6 +101,7 @@ class Engine(QObject):
 
     @pyqtSlot(int, str)
     def _on_log(self, slot_id: int, line: str):
+        self.run_data[slot_id].logs.append(line)
         self.log_line.emit(slot_id, line)
 
     @pyqtSlot(int, str, int, object, bool)

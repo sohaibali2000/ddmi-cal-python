@@ -57,7 +57,7 @@ def build_station(station_cfg: dict, *, slot: int = 1, sim_sn: str = "", fault: 
 def _build_real_station(station_cfg: dict, regmap, dry_run: bool, allow_unverified: bool,
                         log: Callable[[str], None]) -> Station:
     from .hw.attenuator_at4308 import AttenuatorAT4308
-    from .hw.base import DryRunAttenuator, DryRunSupply, LaneAttenuator
+    from .hw.base import DryRunAttenuator, DryRunSupply, LaneAttenuator, SensedSupply
     from .hw.i2c_usbiss import UsbIssBus
     from .hw.ports import resolve_port
     from .hw.power_supply_gpp import GppSupply
@@ -73,7 +73,13 @@ def _build_real_station(station_cfg: dict, regmap, dry_run: bool, allow_unverifi
     try:
         i2c = station_cfg["i2c"]
         bus = UsbIssBus(resolve_port(i2c["resource"]), address=i2c.get("address", 0x50), log=log).open()
-        closers.append(bus.close)
+        def release_bus(bus=bus):
+            try:
+                bus.write(0, 0x7F, bytes([0]))      # leave the module on page 00
+            finally:
+                bus.close()
+
+        closers.append(release_bus)
         if not bus.present():
             raise RuntimeError(f"no module answers on {bus.port} - is the DUT inserted and powered?")
         module = Module(bus, regmap, is_sim=False, dry_run=dry_run, allow_unverified=allow_unverified, log=log)
@@ -84,6 +90,14 @@ def _build_real_station(station_cfg: dict, regmap, dry_run: bool, allow_unverifi
         closers.append(supply.close)
         if not supply.output_on():
             raise RuntimeError(f"the DUT supply output (CH{supply.channel}) is off - switch it on first")
+        monitor = ps.get("vcc_monitor")
+        if monitor:
+            if monitor["type"] != "usb_iss_adc":
+                raise NotImplementedError(f"no VCC monitor of type {monitor['type']!r} (supported: usb_iss_adc)")
+            scale = monitor.get("full_scale_v", 5.0) / monitor.get("counts", 1024)
+            pin = monitor.get("pin", 1)
+            supply = SensedSupply(supply, lambda: bus.read_adc(pin) * scale)
+            log(f"VCC at the module: USB-ISS analogue pin {pin} reads {supply.read_module_voltage():.3f} V")
 
         meter = build_power_meter(station_cfg, log)
         closers.append(meter.close)

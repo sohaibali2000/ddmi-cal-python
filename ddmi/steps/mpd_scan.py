@@ -36,6 +36,13 @@ def scan_mpd(ctx: RunContext) -> None:
         ctx.detail(f"sweep CH{ch} TXMON: {curves[lane]}")
         i_peak, i_valley = tops.peak_valley(curves[lane])
         valley_v[ch] = volts[i_valley]
+        peak, valley = curves[lane][i_peak], curves[lane][i_valley]
+        if peak < max(2 * valley, valley + cfg.get("min_contrast", 50)):
+            # A flat curve: Vtops did not move the modulator. Keep this lane's TOPS settings.
+            ctx.log(f"CH{ch}: sweep is flat (TXMON {valley}..{peak}) - Vtops had no effect; "
+                    f"keeping this lane's tops_setpoint and tops_off")
+            valley_v[ch] = None
+            continue
         lane_info = scan["lanes"][ch] = {
             "peak_v": volts[i_peak], "peak": curves[lane][i_peak],
             "valley_v": volts[i_valley], "valley": curves[lane][i_valley],
@@ -56,7 +63,10 @@ def scan_mpd(ctx: RunContext) -> None:
     setpoints = module.read("tops_setpoint")
     for key in list(fractions) + ["mid"]:
         ctx.check_abort()
-        module.write("Vtops", [points[ch][key] if ch in points else valley_v[ch] for ch in ctx.channels])
+        current_v = module.read("Vtops")
+        module.write("Vtops", [points[ch][key] if ch in points
+                               else (valley_v[ch] if valley_v[ch] is not None else current_v[ch - 1])
+                               for ch in ctx.channels])
         txmon, mpd_out = module.read("R_TXMON"), module.read("R_MPD_OUT")
         ctx.detail(f"op point {key}: TXMON {txmon}, MPD_OUT {mpd_out}")
         if key != "mid":
@@ -73,9 +83,12 @@ def scan_mpd(ctx: RunContext) -> None:
             ctx.results.add("Tops_Setpoint", ch, value)
 
     module.write("tops_setpoint", setpoints)
-    module.write("tops_off", [valley_v[ch] for ch in ctx.channels])
-    module.write_value("W_TOPPID", "toppid_on")
-    ctx.log(f"tops_setpoint written: {setpoints}; tops_off = valley voltage; TOPS loop on")
+    current_off = module.read("tops_off")
+    module.write("tops_off", [current_off[ch - 1] if valley_v[ch] is None else valley_v[ch]
+                              for ch in ctx.channels])
+    toppid = ctx.pre_run("W_TOPPID", "toppid_on")
+    module.write("W_TOPPID", toppid)
+    ctx.log(f"tops_setpoint written: {setpoints}; tops_off = valley voltage; TOPS loop on (TOPPID 0x{toppid:02X})")
     ctx.on_data("mpd_result", {"lanes": copy.deepcopy(scan["lanes"])})
 
 

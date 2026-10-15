@@ -49,12 +49,12 @@ registers:
   # Read from a calibrated AOI module (2026-10-14): float32 LITTLE-endian, the 4 OFFSETS
   # come first and then the 4 slopes (the build map had slope/offset the other way round);
   # EC holds CH1-4, ED CH5-8. Confirmed for TX and VCC: offset + slope * raw monitor
-  # reproduces the module's own DDMI value exactly. RX has the same layout and plausible
-  # values (slopes 15-18) but could not be checked without light on the receiver.
+  # reproduces the module's own DDMI value exactly - confirmed for TX, RX and VCC
+  # (RX on SN P172261904749 with light on the receiver, 2026-10-15).
   DTXPCal_A:      {page: 0xEC, byte: 0xC0, len: 32, fmt: f32le_array, conf: HW}           # offsets CH1-4, slopes CH1-4
   DTXPCal_B:      {page: 0xED, byte: 0xC0, len: 32, fmt: f32le_array, conf: HW}           # offsets CH5-8, slopes CH5-8
-  DRXPCal_A:      {page: 0xEC, byte: 0x90, len: 32, fmt: f32le_array, conf: UNVERIFIED}
-  DRXPCal_B:      {page: 0xED, byte: 0x90, len: 32, fmt: f32le_array, conf: UNVERIFIED}
+  DRXPCal_A:      {page: 0xEC, byte: 0x90, len: 32, fmt: f32le_array, conf: HW}           # offsets CH1-4, slopes CH1-4
+  DRXPCal_B:      {page: 0xED, byte: 0x90, len: 32, fmt: f32le_array, conf: HW}           # offsets CH5-8, slopes CH5-8
   VccCal:         {page: 0xEB, byte: 0x90, len: 8,  fmt: f32le_array, conf: HW}           # offset, slope
 
   # --- mode registers: page/byte order unconfirmed (build map 5.5) ---
@@ -66,7 +66,10 @@ registers:
 
 # Values the flow writes that are themselves unconfirmed.
 values:
-  vendor_password: [0x41, 0x4F, 0x49, 0x57]   # 'AOIW', from IIC.vi; unlocks pages 80h-FFh
+  # Both from IIC.vi, confirmed on hardware 2026-10-15: 'AOIW' unlocks READING pages 80h-FFh
+  # (writes are acknowledged but discarded); 83 4A 2D 4C also unlocks WRITING them.
+  vendor_password: [0x41, 0x4F, 0x49, 0x57]
+  vendor_write_password: [0x83, 0x4A, 0x2D, 0x4C]
   reset: 0x08
   toppid_off: 0
   toppid_on: 1

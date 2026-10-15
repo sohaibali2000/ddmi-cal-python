@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import (
 )
 
 from .. import params
+from ...station import is_sim
 from ..state import Engine
 from ..widgets import CONSOLE_STYLE, STATE_COLORS, Led
 
@@ -56,13 +57,6 @@ class SlotCard(QFrame):
             self._leds[step] = led
         lay.addLayout(row)
 
-        sn_row = QHBoxLayout()
-        sn_row.addWidget(QLabel("Scan SN:"))
-        self.sn_edit = QLineEdit()
-        self.sn_edit.setPlaceholderText("Scan module SN (blank = use the SN read from the module)")
-        self.sn_edit.returnPressed.connect(self.start)
-        sn_row.addWidget(self.sn_edit, 1)
-        lay.addLayout(sn_row)
 
         info = QHBoxLayout()
         info.setSpacing(12)
@@ -85,23 +79,24 @@ class SlotCard(QFrame):
         btns = QHBoxLayout()
         btns.setSpacing(12)
         self.btn_start = QPushButton("Start Test")
-        self.btn_clear = QPushButton("Clear Log")
+        self.btn_refresh = QPushButton("Refresh Log")
         self.btn_abort = QPushButton("Abort Test")
         self.btn_start.setStyleSheet(_BTN.format(bg="#218838", fg="white", bd="#17692b", hv="#1e7e34"))
         self.btn_abort.setStyleSheet(_BTN.format(bg="#c82333", fg="white", bd="#9f1c28", hv="#bd2130"))
-        self.btn_clear.setStyleSheet(_BTN.format(bg="#f8f9fa", fg="#343a40", bd="#6c757d", hv="#e2e6ea"))
-        for b in (self.btn_start, self.btn_clear, self.btn_abort):
+        self.btn_refresh.setStyleSheet(_BTN.format(bg="#f8f9fa", fg="#343a40", bd="#6c757d", hv="#e2e6ea"))
+        self.btn_refresh.setToolTip("Reload the full log of the current run")
+        for b in (self.btn_start, self.btn_refresh, self.btn_abort):
             b.setMinimumHeight(38)
             b.setCursor(Qt.PointingHandCursor)
         btns.addWidget(self.btn_start, 2)
-        btns.addWidget(self.btn_clear)
+        btns.addWidget(self.btn_refresh)
         btns.addSpacing(18)
         btns.addWidget(self.btn_abort, 2)
         lay.addLayout(btns)
 
         self.btn_start.clicked.connect(self.start)
         self.btn_abort.clicked.connect(self.abort)
-        self.btn_clear.clicked.connect(self.console.clear)
+        self.btn_refresh.clicked.connect(self.refresh_log)
         self.refresh()
 
     def blink_tick(self):
@@ -116,9 +111,19 @@ class SlotCard(QFrame):
             QMessageBox.warning(self, "User ID Required",
                                 "Please enter a User ID before starting in online mode.")
             return
+        run = self.engine.settings.data["run"]
+        if (not is_sim(self.engine.station_cfg) and not run.get("dry_run")
+                and not run.get("allow_unverified_writes")):
+            QMessageBox.warning(
+                self, "Writes not enabled",
+                "This is the real station and Dry run is off, but writes to unverified registers "
+                "are not allowed, so the run would stop at its first module setting.\n\n"
+                "Settings (engineer password): either tick 'Dry run', or tick 'Allow writes to "
+                "unverified registers' for a real calibration (it saves straight away).")
+            return
         self.console.clear()
-        self.engine.start_slot(self.slot_id, self.plan.currentText(), self.sn_edit.text().strip())
-        self.sn_edit.clear()
+        # No scanning: the SN is read from the module itself (R_Information).
+        self.engine.start_slot(self.slot_id, self.plan.currentText(), "")
 
     def abort(self):
         if not self.engine.is_running(self.slot_id):
@@ -129,6 +134,12 @@ class SlotCard(QFrame):
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if answer == QMessageBox.Yes:
             self.engine.abort_slot(self.slot_id)
+
+    def refresh_log(self):
+        """Reload the whole log of the current run (keeps the view at the bottom)."""
+        self.console.setPlainText("\n".join(self.engine.run_data[self.slot_id].logs))
+        bar = self.console.verticalScrollBar()
+        bar.setValue(bar.maximum())
 
     def append_log(self, line: str):
         self.console.append(line)
@@ -151,7 +162,6 @@ class SlotCard(QFrame):
         self.btn_start.setEnabled(not running)
         self.btn_abort.setEnabled(running)
         self.plan.setEnabled(not running)
-        self.sn_edit.setEnabled(not running)
         for step, led in self._leds.items():
             led.set_state(rd.steps.get(step, "idle"))
 

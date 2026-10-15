@@ -6,6 +6,7 @@ Move_in / Read_Spec / Move_out belong to the MES wrapper (ddmi/mes/wrapper.py).
 """
 from __future__ import annotations
 
+from . import backup
 from .runctx import RunContext
 from .steps import mpd_scan, rx_cal, showpf, startup, temp, tx_cal, vcc_cal
 
@@ -33,7 +34,11 @@ def _stage(ctx: RunContext, name: str, functions) -> None:
 
 
 def safe_state(ctx: RunContext) -> None:
-    """After an abort or error: lanes enabled, loops back on, supply at nominal. Best effort."""
+    """After an abort or error: lanes enabled, loops back on, supply at nominal. Best effort.
+    Skipped when nothing was written to the module yet (nothing to undo)."""
+    if ctx.module.writes_sent == 0:
+        ctx.log("Nothing was written to the module - no clean-up needed")
+        return
     for action in (
         lambda: ctx.module.write("W_TXDis", 0x00),
         lambda: ctx.module.write_value("W_Reset", "reset"),
@@ -46,9 +51,26 @@ def safe_state(ctx: RunContext) -> None:
     ctx.log("Module returned to a safe state (TX enabled, reset, supply at nominal)")
 
 
+def take_backup(ctx: RunContext) -> None:
+    """Read every register the flow writes, before the first write, and save it."""
+    info = ctx.module.read("R_Information")          # SN first, so the backup carries it
+    ctx.meta.setdefault("module_sn", info[18:34].strip())
+    snap = backup.snapshot(ctx.module)
+    ctx.meta["pre_run"] = backup.decoded(ctx.module, snap)
+    folder = ctx.meta.get("backup_dir")
+    if folder:
+        path = backup.save_backup(snap, ctx.scanned_sn or ctx.meta.get("module_sn", ""), folder)
+        ctx.meta["backup_file"] = str(path)
+        ctx.log(f"Module registers backed up to {path.name} (restore with: python -m ddmi restore --file {path})")
+    pre = ctx.meta["pre_run"]
+    ctx.detail(f"pre-run values: TOPPID {pre['W_TOPPID']}, IBiasPID {pre['W_IBiasPID']}, IBias {pre['IBias']}, "
+               f"modes {[pre[n] for n in ('AWS_Test_Mode', 'TestMode', 'DSP_TestMode', 'DSP_OperatingMode', 'TempOffFunc')]}")
+
+
 def run(ctx: RunContext) -> None:
     """Run the whole sequence. Raises Aborted or StopTest; results accumulate in ctx.results."""
     try:
+        take_backup(ctx)
         _stage(ctx, "Startup", (startup.reini, startup.set_temp, startup.read_sn, startup.set_vcc))
         _stage(ctx, "Scan MPD", (mpd_scan.scan_mpd, mpd_scan.scan_disable))
         for part in ctx.product["flow"]["ddmi_cal_order"]:

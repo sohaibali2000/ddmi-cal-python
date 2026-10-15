@@ -103,11 +103,16 @@ def run_slot(*, station_cfg: dict, product: dict, slot: int = 1, scanned_sn: str
             ctx = RunContext(
                 product=product, module=station.module, bench=station.bench, results=results,
                 tx_loss=tx_loss, rx_tables=rx_tables, scanned_sn=scanned_sn,
-                time_scale=station_cfg.get("time_scale", 1.0), log=say, detail=detail,
+            time_scale=station_cfg.get("time_scale", 1.0), log=say, detail=detail,
                 on_step=on_step, on_data=on_data, abort=abort,
             )
+            ctx.meta["backup_dir"] = str(results_dir / "backups")
             reason = ""
             try:
+                if not ctx.meta.get("module_sn"):
+                    info = station.module.read("R_Information")
+                    ctx.meta["module_sn"] = info[18:34].strip()
+                    on_sn(scanned_sn or ctx.meta["module_sn"])
                 flow.run(ctx)
             except Aborted:
                 reason = "ABORTED"
@@ -131,7 +136,7 @@ def run_slot(*, station_cfg: dict, product: dict, slot: int = 1, scanned_sn: str
             if reason == "ABORTED":
                 result = "ABORTED"
             elif reason:
-                result, fails = "ERROR", fails or [reason]
+                result, fails = "ERROR", [reason] + fails
             else:
                 result = "PASS" if not fails else "FAIL"
             ctx.meta.pop("stage", None)
@@ -141,8 +146,14 @@ def run_slot(*, station_cfg: dict, product: dict, slot: int = 1, scanned_sn: str
 
         mes = mes or OfflineMes(results_dir / "mes_offline")
         pn = ""   # the PN is only known after Read SN; the offline spec does not depend on it
-        outcome = run_with_mes(mes, scanned_sn, pn, record["station"], run_test, say)
-        if not outcome["checked_in"]:
+        if record["dry_run"]:
+            # A dry run never checks in, uploads or checks out: it only records locally.
+            say("Dry run: MES is skipped (no check-in, upload or check-out)")
+            run_test(None)
+            outcome = {"checked_in": False, "saved": False, "checked_out": False, "dry_run": True}
+        else:
+            outcome = run_with_mes(mes, scanned_sn, pn, record["station"], run_test, say)
+        if not outcome["checked_in"] and not outcome.get("dry_run"):
             # Results are only saved for modules that checked in OK.
             record["failing_items"] = [f"MES check-in: {outcome.get('message', '')}"]
             return record

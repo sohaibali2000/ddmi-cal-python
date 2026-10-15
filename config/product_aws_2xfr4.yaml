@@ -47,6 +47,11 @@ tx_loss:
   consecutive: 3
   timeout_s: 1800
 
+showpf:
+  # restore: write back the mode registers as read before the run (safe for a module that
+  # was already in its shipping state). labview: the V6.8 sequence with unconfirmed values.
+  mode_cleanup: restore
+
 tx_cal:
   bias_ma: [60, 180]               # other 2xFR4: [70, 130]
   settle_s: 2.0

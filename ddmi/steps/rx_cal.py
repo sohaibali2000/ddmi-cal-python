@@ -46,14 +46,25 @@ def rx_cal(ctx: RunContext) -> None:
                     f"{reading[pair[0] - 1]} / {reading[pair[1] - 1]}")
 
     y = [dbm_to_lin(p) for p in cfg["points_dbm"]]
+    old_slopes, old_offsets = module.read_cal("DRXPCal")
     slopes, offsets = [], []
     for ch in ctx.channels:
+        hi, lo = max(rssi[ch]), min(rssi[ch])
+        if hi < 2 * max(lo, 1):
+            # -2 and -10 dBm differ 6.3x in power; RSSI must at least double, or the fit is noise
+            ctx.log(f"CH{ch}: RSSI {rssi[ch]} hardly changed between {cfg['points_dbm']} dBm; "
+                    f"keeping this lane's current RX calibration")
+            slopes.append(old_slopes[ch - 1])
+            offsets.append(old_offsets[ch - 1])
+            ctx.results.add("Rxp_Slope", ch, None)
+            ctx.results.add("Rxp_Offset", ch, None)
+            continue
         try:
             slope, offset = two_point_fit((rssi[ch][0], y[0]), (rssi[ch][1], y[1]))
         except ValueError as exc:
-            ctx.log(f"CH{ch}: RX fit failed ({exc})")
-            slopes.append(0.0)
-            offsets.append(0.0)
+            ctx.log(f"CH{ch}: RX fit failed ({exc}); keeping this lane's current RX calibration")
+            slopes.append(old_slopes[ch - 1])
+            offsets.append(old_offsets[ch - 1])
             ctx.results.add("Rxp_Slope", ch, None)
             ctx.results.add("Rxp_Offset", ch, None)
             continue

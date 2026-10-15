@@ -12,6 +12,8 @@ ISS_CMD = 0x5A
 ISS_VERSION, ISS_MODE, GET_SER_NUM = 0x01, 0x02, 0x03
 I2C_AD1 = 0x55          # device with a 1-byte register address
 I2C_TEST = 0x58
+IO_GETAD = 0x65         # read an analogue input pin (10-bit); I2C Read Vcc.vi uses it for the module VCC
+IO_TYPE_LABVIEW = 0x0F  # I/O pins 1-2 analogue inputs, 3-4 outputs (as I2C Read Vcc.vi sets them)
 USB_ISS_ID = 7
 I2C_MODES = {0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80}
 I2C_H_100KHZ = 0x60
@@ -38,8 +40,9 @@ class UsbIssBus:
             self.close()
             raise RuntimeError(f"{self.port} is not a USB-ISS (module id {module_id})")
         if mode & 0xF0 not in I2C_MODES:
-            # adapter configuration only (not a module write): hardware I2C at 100 kHz, I/O pins as inputs
-            if self._xfer(bytes([ISS_CMD, ISS_MODE, I2C_H_100KHZ, 0x00]), 2)[0] != 0xFF:
+            # adapter configuration only (not a module write): hardware I2C at 100 kHz with the
+            # I/O pins configured as LabVIEW does on this station
+            if self._xfer(bytes([ISS_CMD, ISS_MODE, I2C_H_100KHZ, IO_TYPE_LABVIEW]), 2)[0] != 0xFF:
                 raise RuntimeError(f"{self.port}: could not put the USB-ISS into I2C mode")
         serial_no = self._xfer(bytes([ISS_CMD, GET_SER_NUM]), 8).decode(errors="replace")
         self.log(f"USB-ISS {self.port}: serial {serial_no}, firmware {firmware}, mode 0x{mode:02X}")
@@ -64,6 +67,11 @@ class UsbIssBus:
         if len(reply) != reply_len:
             raise TimeoutError(f"USB-ISS {self.port}: expected {reply_len} bytes, got {len(reply)}")
         return reply
+
+    def read_adc(self, pin: int) -> int:
+        """10-bit reading of analogue input pin 1-4 (counts; full scale is the USB 5 V)."""
+        reply = self._xfer(bytes([IO_GETAD, pin]), 2)
+        return (reply[0] << 8) | reply[1]
 
     # ---- raw I2C ----
     def present(self) -> bool:

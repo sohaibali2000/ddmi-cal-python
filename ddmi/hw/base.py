@@ -80,6 +80,23 @@ class LaneAttenuator:
         self.attenuator.set_attenuation(channel, db)
 
 
+class SensedSupply:
+    """A supply whose 'voltage at the module' comes from a monitor on the DUT board
+    (on the lab station: the DUT's USB-ISS analogue pin 1, as LabVIEW's I2C Read Vcc.vi)."""
+
+    def __init__(self, supply, read_module_volts):
+        self.supply, self.read_module_volts = supply, read_module_volts
+
+    def set_voltage(self, volts: float) -> None:
+        self.supply.set_voltage(volts)
+
+    def read_current(self) -> float:
+        return self.supply.read_current()
+
+    def read_module_voltage(self) -> float:
+        return self.read_module_volts()
+
+
 class DryRunSupply:
     """Dry run on real hardware: the supply is read, never set (each intended setting is logged)."""
 

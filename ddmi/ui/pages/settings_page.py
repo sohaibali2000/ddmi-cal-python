@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import (
 )
 
 from .. import params
+from ...station import is_sim
 from ..state import Engine
 
 _DOT = "font-size: 16px; color: {};"
@@ -15,6 +16,7 @@ class SettingsPage(QWidget):
         self.engine = engine
         self.settings = engine.settings
         self._locked = True
+        self._loading = False
         self._equip = {}   # (slot, key) -> (model combo, address edit, status label)
 
         outer = QVBoxLayout(self)
@@ -37,9 +39,11 @@ class SettingsPage(QWidget):
 
         runbox = QGroupBox("Run Options")
         g = QGridLayout(runbox)
-        self.cb_sim = QCheckBox("Simulator (no hardware) - the only mode until the real drivers are built")
+        real = not is_sim(engine.station_cfg)
+        self.cb_sim = QCheckBox("Real hardware - lab station" if real else "Simulator (no hardware)")
         self.cb_sim.setChecked(True)
         self.cb_sim.setEnabled(False)
+        self.cb_sim.setToolTip("Set by the station file the app was started with (run_ui_lab.bat = real station)")
         self.cb_offline = QCheckBox("Offline (disable MES)")
         self.cb_dry = QCheckBox("Dry run (print every module write, send nothing)")
         self.cb_unverified = QCheckBox("Allow writes to unverified registers (engineering only)")
@@ -102,6 +106,9 @@ class SettingsPage(QWidget):
         lay.addLayout(btns)
         lay.addStretch(1)
 
+        for box in (self.cb_offline, self.cb_dry, self.cb_unverified):
+            box.toggled.connect(self._apply_run_options)
+        self.fault.currentIndexChanged.connect(self._apply_run_options)
         self.load()
         self._apply_lock()
 
@@ -140,7 +147,27 @@ class SettingsPage(QWidget):
             f"{label}: no hardware driver yet.\n\nThe station runs on the simulator "
             "until the real drivers are added.")
 
+    def _apply_run_options(self, *_args):
+        """Run options take effect and are saved the moment they are changed."""
+        if self._loading:
+            return
+        run = self.settings.data["run"]
+        run.update(offline=self.cb_offline.isChecked(), dry_run=self.cb_dry.isChecked(),
+                   allow_unverified_writes=self.cb_unverified.isChecked(),
+                   sim_fault=self.fault.currentText())
+        try:
+            self.settings.save()
+        except OSError as exc:
+            QMessageBox.critical(self, "Settings", f"Could not save settings:\n{exc}")
+
     def load(self):
+        self._loading = True
+        try:
+            self._load()
+        finally:
+            self._loading = False
+
+    def _load(self):
         self.settings.data = self.settings.load()
         run, station = self.settings.data["run"], self.settings.data["station"]
         self.cb_offline.setChecked(bool(run.get("offline", True)))

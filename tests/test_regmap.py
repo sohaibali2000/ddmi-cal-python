@@ -99,7 +99,8 @@ def test_wrong_length_is_rejected(regmap):
 def test_confidence_flags(regmap):
     assert regmap["W_Reset"].verified and regmap["Vtops"].verified
     assert regmap["DTXPCal_A"].verified and regmap["VccCal"].verified     # confirmed on hardware
-    for name in ("IBias", "W_IBiasPID", "W_TOPPID", "DRXPCal_A", "DRXPCal_B",
+    assert regmap["DRXPCal_A"].verified and regmap["DRXPCal_B"].verified
+    for name in ("IBias", "W_IBiasPID", "W_TOPPID",
                  "AWS_Test_Mode", "TestMode", "DSP_TestMode", "DSP_OperatingMode", "TempOffFunc"):
         assert not regmap[name].verified, name
 
@@ -208,3 +209,17 @@ def test_cal_write_puts_offsets_before_slopes(regmap):
     written = {w[:2]: w[2] for w in bus.data_writes}
     assert written[(0xEC, 0xC0)] == DUT_EC_TX and written[(0xED, 0xC0)] == DUT_ED_TX
     assert written[(0xEB, 0x90)] == DUT_VCC
+
+
+def test_vendor_writes_use_the_write_password(regmap):
+    bus = FakeBus()
+    module = Module(bus, regmap, is_sim=False)
+    module.read("R_TXMON")                                  # read: read password
+    module.write("tops_setpoint", [600] * 8)                # write: write password first
+    passwords = [w[2] for w in bus.writes if w[1] == 0x7A]
+    assert passwords == [b"AOIW", bytes([0x83, 0x4A, 0x2D, 0x4C])]
+    module.write("tops_setpoint", [601] * 8)                # already at write level
+    assert len([w for w in bus.writes if w[1] == 0x7A]) == 2
+    module.write("W_Reset", 0x08)                           # a reset locks again
+    module.write("tops_setpoint", [602] * 8)
+    assert [w[2] for w in bus.writes if w[1] == 0x7A][-1] == bytes([0x83, 0x4A, 0x2D, 0x4C])

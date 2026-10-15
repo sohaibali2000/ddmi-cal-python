@@ -11,6 +11,7 @@ def vcc_cal(ctx: RunContext) -> None:
     cfg, module = ctx.product["vcc"], ctx.module
     module.write_value("DSP_TestMode", "dsp_debug")           # W_Debug_AWS = 1
     module.write_value("DSP_OperatingMode", "dsp_dual")       # W_Daul_AWS = 5
+    old_slope, old_offset = module.read_vcc_cal()
     try:
         module.write_vcc_cal(0.0, 0.0)
         ctx.log("VCC cal: unlocked, old calibration cleared")
@@ -23,9 +24,13 @@ def vcc_cal(ctx: RunContext) -> None:
             points.append((adc, volts_to_lin(actual)))
             ctx.log(f"VCC {target} V: achieved {actual:.4f} V, R_VCCADC {adc}")
         try:
+            if abs(points[1][0] - points[0][0]) < 20:
+                raise ValueError(f"VCC ADC {points[0][0]} -> {points[1][0]} hardly changed between "
+                                 f"{cfg['cal_points_v']} V")
             slope, offset = two_point_fit(*points)
         except ValueError as exc:
-            ctx.log(f"VCC fit failed ({exc})")
+            ctx.log(f"VCC fit failed ({exc}); restoring the previous VCC calibration")
+            module.write_vcc_cal(old_slope, old_offset)
             ctx.results.add("Vcc_Slope", 0, None)
             ctx.results.add("Vcc_Offset", 0, None)
         else:
@@ -34,8 +39,9 @@ def vcc_cal(ctx: RunContext) -> None:
             ctx.results.add("Vcc_Offset", 0, round(offset, 1))
             ctx.log(f"W_VccCal written: slope {slope:.4f}, offset {offset:.1f}")
     finally:
-        module.write_value("DSP_TestMode", "dsp_normal")          # W_Nomal_AWS = 0
-        module.write_value("DSP_OperatingMode", "dsp_mission")    # W_Mission_AWS = 0
+        # Lock again: W_Nomal_AWS / W_Mission_AWS, i.e. the values read before the run (0 / 0)
+        module.write("DSP_TestMode", ctx.pre_run("DSP_TestMode", "dsp_normal"))
+        module.write("DSP_OperatingMode", ctx.pre_run("DSP_OperatingMode", "dsp_mission"))
 
 
 def vcc_check(ctx: RunContext) -> None:

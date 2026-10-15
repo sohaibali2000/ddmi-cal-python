@@ -4,13 +4,16 @@ dry_run: true                      # keep true until the unverified registers ar
 allow_unverified_writes: false     # must stay false on real modules
 # COM numbers change when the USB hub is replugged, so ports are found by USB serial number
 # ("usb-sn:...") or, for CH340 adapters that have none, by position in the hub ("usb-loc:...").
-# DUT: Devantech USB-ISS I2C adapter (USB SN 00071351), CMIS module at 7-bit address 0x50
-i2c: {type: usb_iss, resource: "usb-sn:00071351"}
+# DUT: Devantech USB-ISS I2C adapter (USB SN 00071345), CMIS module at 7-bit address 0x50
+i2c: {type: usb_iss, resource: "usb-sn:00071345"}
 # RX light source: a transceiver module on its own USB-ISS (USB SN 00071349)
 light_source: {type: usb_iss_module, resource: "usb-sn:00071349"}
-# GW Instek GPP-3060 (USB SN EZ201279), 9600 baud, newline; DUT on CH1. The second GPP (EZ201269) is on COM19.
+# GW Instek GPP-3060 (USB SN EZ201279), 9600 baud, newline; DUT on CH2. The second GPP (EZ201269) is on COM19.
 # max_voltage_v: never set the supply above this (cable drop is ~0.26 V at 2 A; module max is ~3.6 V)
-power_supply: {type: gw_gpp, resource: "usb-sn:EZ201279", channel: 1, max_voltage_v: 3.9}
+# The voltage AT THE MODULE comes from the DUT adapter's analogue pin 1 (counts x 5 / 1024),
+# as LabVIEW's I2C Read Vcc.vi does; the supply's own reading is ~0.24 V higher (cable drop).
+power_supply: {type: gw_gpp, resource: "usb-sn:EZ201279", channel: 2, max_voltage_v: 3.9,
+               vcc_monitor: {type: usb_iss_adc, pin: 1, full_scale_v: 5.0, counts: 1024}}
 # 8-channel MPO meter PM4208 (SN T04120501044), as used by the production Tx Loss tool (no optical switch)
 power_meter: {type: lx_mpo, resource: "usb-loc:.4.4.1", dll: "C:/Users/Syed_Ali/Documents/DDMI_TX_Loss_Standalone/Inst_LX_PowerMeter v1.012.dll"}
 # TriBrer (Semight) AT4308, SN T01220501023, through the vendor's 32-bit DLLs (ddmi/hw/voa_host).
@@ -18,6 +21,8 @@ power_meter: {type: lx_mpo, resource: "usb-loc:.4.4.1", dll: "C:/Users/Syed_Ali/
 # TODO min_att_db: confirm against the DUT receiver's maximum input; 3 dB keeps each fibre near +5 dBm.
 attenuator: {type: at4308, resource: "usb-loc:.4.4.2", dll_dir: "C:/Users/Syed_Ali/2XFR4_Final_Test/logic/instruments",
              lane_channels: [1, 1, 1, 1, 2, 2, 2, 2], min_att_db: 3.0}
-tx_loss_file: station_data/system_Data.ini
-rx_table_dir: station_data/rx_tables
+# This station's own loss data (copied 2026-10-15 from \aoiusnas01\...\Syed Ali\LOSS FILES):
+# Tx Loss from the production tool's system.ini, RX tables from LeftCH1-8_Rx_calibration.txt.
+tx_loss_file: station_data/lab/system.ini
+rx_table_dir: station_data/lab/rx_tables
 results_dir: results

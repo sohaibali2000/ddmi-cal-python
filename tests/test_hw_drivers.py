@@ -104,7 +104,7 @@ def test_something_else_on_the_port_is_refused():
 
 def test_lab_config_loads_and_unknown_instruments_are_named():
     lab = config.load_station(config.CONFIG_DIR / "station_lab.yaml")
-    assert lab["i2c"]["resource"] == "usb-sn:00071351"
+    assert lab["i2c"]["resource"].startswith("usb-sn:")
     lab["power_supply"] = {"type": "keysight_e36"}
     with pytest.raises(NotImplementedError, match="power_supply: keysight_e36"):
         build_station(lab)
