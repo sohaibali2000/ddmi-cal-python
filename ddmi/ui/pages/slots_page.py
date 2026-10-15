@@ -67,8 +67,6 @@ class SlotsPage(QWidget):
                     cell = QTableWidgetItem("")
                     cell.setTextAlignment(Qt.AlignCenter)
                     self.table.setItem(r, c, cell)
-                if param in params.MODULE_LEVEL:
-                    self.table.setSpan(r, 1, 1, params.CHANNELS)
                 self._rows[param] = r
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Stretch)
@@ -102,5 +100,4 @@ class SlotsPage(QWidget):
                 cell.setText("" if data is None else "NaN" if data["value"] is None else str(data["value"]))
                 if data is not None:
                     cell.setForeground(QColor(0, 128, 0) if data["ok"] else QColor(255, 0, 0))
-                if module:
-                    break
+

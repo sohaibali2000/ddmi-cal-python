@@ -39,14 +39,13 @@ class _RecordDialog(QDialog):
             table.insertRow(r)
             table.setItem(r, 0, QTableWidgetItem(param))
             for key, cell in cells.items():
-                item = QTableWidgetItem("NaN" if cell.get("value") is None else str(cell.get("value")))
-                item.setTextAlignment(Qt.AlignCenter)
-                item.setForeground(QColor(0, 128, 0) if cell.get("ok") else QColor(255, 0, 0))
-                if key == "module":
-                    table.setSpan(r, 1, 1, params.CHANNELS)
-                    table.setItem(r, 1, item)
-                else:
-                    table.setItem(r, int(key[2:]), item)
+                # A module-level value (VCC, ICC, temperature) is shown in all 8 channel columns.
+                cols = range(1, params.CHANNELS + 1) if key == "module" else [int(key[2:])]
+                for c in cols:
+                    item = QTableWidgetItem("NaN" if cell.get("value") is None else str(cell.get("value")))
+                    item.setTextAlignment(Qt.AlignCenter)
+                    item.setForeground(QColor(0, 128, 0) if cell.get("ok") else QColor(255, 0, 0))
+                    table.setItem(r, c, item)
         table.setColumnWidth(0, 200)
         tabs.addTab(table, "Results")
 
