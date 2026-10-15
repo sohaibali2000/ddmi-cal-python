@@ -91,9 +91,14 @@ def validate_product(cfg: dict) -> dict:
     if not isinstance(order, list) or sorted(order) != sorted(DDMI_CAL_PARTS):
         raise ConfigError(f"flow.ddmi_cal_order must list each of {DDMI_CAL_PARTS} once, got {order!r}")
 
-    _number(cfg, "tx_disable.step_v", 1e-6)
-    _number(cfg, "tx_disable.settle_s", 0)
-    _number(cfg, "tx_disable.max_steps", 1)
+    _number(cfg, "tx_disable.poll_s", 1e-3)
+    _number(cfg, "tx_disable.min_s", 0)
+    _number(cfg, "tx_disable.max_s", 1e-3)
+    _number(cfg, "tx_disable.stable_readings", 1)
+    _number(cfg, "tx_disable.tol_db", 0)
+    _number(cfg, "tx_disable.dark_margin_db", 0)
+    _number(cfg, "tx_disable.tune_step_v", 1e-6)
+    _number(cfg, "tx_disable.tune_max_steps", 0)
     _range(cfg, "tx_disable.limit_dbm")
 
     for nm in _numbers(cfg, "tx_power_meter.wavelengths_nm", int(channels)):

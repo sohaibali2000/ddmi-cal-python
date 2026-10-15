@@ -10,6 +10,12 @@ def tx_cal(ctx: RunContext) -> None:
     cfg, module = ctx.product["tx_cal"], ctx.module
     saved_bias = module.read("IBias")
     ctx.log(f"TX cal: saved bias {[round(b, 1) for b in saved_bias]} mA")
+    # With AWS_Test_Mode = 1 (set at start-up) the module stores IBias but does not apply
+    # it (seen on hardware 2026-10-15), so the two bias points would be the same point.
+    test_mode = module.read("AWS_Test_Mode")
+    if test_mode:
+        module.write("AWS_Test_Mode", 0)
+        ctx.log(f"TX cal: AWS_Test_Mode {test_mode} -> 0 while the bias is stepped")
 
     points = {ch: [] for ch in ctx.channels}
     try:
@@ -58,6 +64,8 @@ def tx_cal(ctx: RunContext) -> None:
     finally:
         module.write("IBias", saved_bias)
         module.write("W_IBiasPID", ctx.pre_run("W_IBiasPID", "ibiaspid_restore"))
+        if test_mode:
+            module.write("AWS_Test_Mode", test_mode)
         module.write_value("W_Reset", "reset")
         ctx.log(f"bias restored, W_Reset, wait {cfg['after_reset_wait_s']} s")
     ctx.sleep(cfg["after_reset_wait_s"])

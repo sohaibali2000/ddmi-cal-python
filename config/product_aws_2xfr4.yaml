@@ -12,6 +12,10 @@ mpd_scan:
   vtops_start: 0.5                 # V (Acacia 0.0-2.0/0.01; others 0.0-1.5/0.02)
   vtops_stop: 3.0
   vtops_step: 0.02
+  # TXMON on the real module refreshes only every ~200 ms and the heater needs time to
+  # settle: read it straight after a Vtops write and the curve comes out as stale steps.
+  start_settle_s: 1.0              # at the first voltage, before the sweep
+  step_settle_s: 0.3               # after every Vtops step (VERIFY: "Delay Time (s)" in MPD Monitor.vi)
   # The fraction array as it appears in the LabVIEW code. Read as 1 - x of the peak it
   # gives the operating points at 35 / 44 / 50 / 56 % of peak (4.5 / 3.5 / 3.0 / 2.5 dB
   # below it). VERIFY against Peak Search.vi; the other modes are x_of_peak, x_of_span,
@@ -25,9 +29,18 @@ mpd_scan:
   scan_attempts: 1                 # V12: 2 attempts, up to 2 scans each
 
 tx_disable:
-  step_v: 0.01
-  max_steps: 4
-  settle_s: 0.2                    # VERIFY: wait after each tops_off step (not in the build map)
+  # Measured on hardware 2026-10-15: after W_TXDis (and after every tops_off write) the lane
+  # first flashes to about +4 dBm, then drifts down for ~10 s; at the scan's valley it
+  # settles near -25 dBm. So: start at the valley, wait for the settled value, and tune
+  # only a lane that fails, in steps big enough to matter, each one settled.
+  poll_s: 0.5
+  min_s: 3.0                       # never judge before this
+  max_s: 15.0
+  stable_readings: 4               # the last 4 readings within tol_db = settled
+  tol_db: 0.6
+  dark_margin_db: 4.0              # done early once this far below the upper limit
+  tune_step_v: 0.05
+  tune_max_steps: 2
   extra_steps_if_above_dbm: null   # V12: -18 dBm -> 5 more steps
   limit_dbm: [-60, -16]
 

@@ -19,9 +19,10 @@ def scan_mpd(ctx: RunContext) -> None:
     curves = [[] for _ in range(lanes)]
     scan = ctx.meta["mpd_scan"] = {"volts": [], "curves": curves, "lanes": {}}
     ctx.on_data("mpd_start", {"volts": volts, "lanes": lanes})
-    for v in volts:
+    for i, v in enumerate(volts):
         ctx.check_abort()
         module.write("Vtops", [v] * lanes)
+        ctx.sleep(cfg.get("start_settle_s", 0.0) if i == 0 else cfg.get("step_settle_s", 0.0))
         txmon = module.read("R_TXMON")
         for lane, value in enumerate(txmon):
             curves[lane].append(value)
@@ -92,10 +93,36 @@ def scan_mpd(ctx: RunContext) -> None:
     ctx.on_data("mpd_result", {"lanes": copy.deepcopy(scan["lanes"])})
 
 
+def settled_power(ctx: RunContext, ch: int, cfg: dict) -> float:
+    """A disabled lane's output once it has settled.
+
+    On the real module every TX disable and every tops_off write starts with a bright
+    spike (about +4 dBm) that then drifts down for about 10 s. Read every poll_s until the
+    last readings agree within tol_db, or the lane is safely dark, or max_s has passed.
+    """
+    poll, waited, hist = cfg["poll_s"], 0.0, []
+    dark_enough = cfg["limit_dbm"][1] - cfg["dark_margin_db"]
+    while True:
+        ctx.sleep(poll)
+        waited += poll
+        hist.append(ctx.true_tx_power(ch))
+        if waited >= cfg["min_s"]:
+            last = hist[-cfg["stable_readings"]:]
+            if hist[-1] <= dark_enough or (len(last) == cfg["stable_readings"]
+                                           and max(last) - min(last) <= cfg["tol_db"]):
+                break
+        if waited >= cfg["max_s"]:
+            break
+    ctx.detail(f"CH{ch} disabled output over {waited:.1f} s: {[round(p, 2) for p in hist]}")
+    return hist[-1]
+
+
 def scan_disable(ctx: RunContext) -> None:
-    """Per lane: disable it, then nudge tops_off toward the darkest output."""
+    """Per lane: disable it at tops_off = the scan's valley and read the settled leakage.
+    Only a lane that fails is tuned, in tune_step_v steps, each one settled."""
     cfg, module = ctx.product["tx_disable"], ctx.module
-    ctx.log(f"Scan_Disable: step {cfg['step_v']} V toward darker, up to {cfg['max_steps']} steps")
+    ctx.log(f"Scan_Disable: settle up to {cfg['max_s']} s per lane; tune by {cfg['tune_step_v']} V "
+            f"(up to {cfg['tune_max_steps']} steps) only if above {cfg['limit_dbm'][1]} dBm")
     try:
         for ch in ctx.channels:
             ctx.check_abort()
@@ -103,12 +130,19 @@ def scan_disable(ctx: RunContext) -> None:
             module.write("W_TXDis", 1 << (ch - 1))
 
             def measure(v, ch=ch):
-                module.update_lane("tops_off", ch, v)
-                ctx.sleep(cfg["settle_s"])
-                return ctx.true_tx_power(ch)
+                if abs(module.read("tops_off")[ch - 1] - v) > 1e-3:
+                    module.update_lane("tops_off", ch, v)
+                return settled_power(ctx, ch, cfg)
 
-            best_v, _, readings = search_darkest(measure, start, cfg["step_v"], cfg["max_steps"])
-            leakage = measure(best_v)
+            best_v, leakage = start, measure(start)
+            readings = [(start, leakage)]
+            if leakage > cfg["limit_dbm"][1] and cfg["tune_max_steps"]:
+                ctx.log(f"CH{ch}: {leakage:.2f} dBm at the valley {start:.3f} V - tuning tops_off")
+                best_v, leakage, more = search_darkest(measure, start, cfg["tune_step_v"],
+                                                       cfg["tune_max_steps"], first=leakage)
+                readings = more
+                if abs(module.read("tops_off")[ch - 1] - best_v) > 1e-3:
+                    leakage = measure(best_v)
             ctx.detail(f"CH{ch} tx-disable search: {[(round(v, 3), round(p, 2)) for v, p in readings]}")
             ctx.log(f"CH{ch}: tops_off {start:.3f} -> {best_v:.3f} V, leakage {leakage:.2f} dBm")
             ctx.results.add("Tops_off(V)", ch, round(best_v, 3))

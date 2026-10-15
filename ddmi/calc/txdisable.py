@@ -10,12 +10,14 @@ from typing import Callable
 
 
 def search_darkest(measure: Callable[[float], float], start_v: float,
-                   step_v: float = 0.01, max_steps: int = 4) -> tuple[float, float, list]:
+                   step_v: float = 0.01, max_steps: int = 4,
+                   first: float | None = None) -> tuple[float, float, list]:
     """Return (best voltage, leakage dBm there, every (voltage, dBm) reading taken).
 
     measure(v) sets tops_off to v on the disabled lane and returns the output in dBm.
+    first: the reading at start_v when the caller already has it.
     """
-    readings = [(start_v, measure(start_v))]
+    readings = [(start_v, measure(start_v) if first is None else first)]
     best_v, best_p = readings[0]
 
     direction = 0
