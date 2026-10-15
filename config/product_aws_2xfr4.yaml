@@ -35,7 +35,7 @@ tx_disable:
   # only a lane that fails, in steps big enough to matter, each one settled.
   poll_s: 0.5
   min_s: 3.0                       # never judge before this
-  max_s: 15.0
+  max_s: 30.0                      # CH8 was still ramping (-18 dBm, ~1.5 dB/s) after 12 s
   stable_readings: 4               # the last 4 readings within tol_db = settled
   tol_db: 0.6
   dark_margin_db: 4.0              # done early once this far below the upper limit

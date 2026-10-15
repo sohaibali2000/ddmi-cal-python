@@ -123,6 +123,12 @@ def scan_disable(ctx: RunContext) -> None:
     cfg, module = ctx.product["tx_disable"], ctx.module
     ctx.log(f"Scan_Disable: settle up to {cfg['max_s']} s per lane; tune by {cfg['tune_step_v']} V "
             f"(up to {cfg['tune_max_steps']} steps) only if above {cfg['limit_dbm'][1]} dBm")
+    # With AWS_Test_Mode = 1 a disabled lane is frozen where it was and tops_off is never
+    # applied (seen on hardware 2026-10-15: CH8 stayed at +5.0 dBm; with 0 it went dark).
+    test_mode = module.read("AWS_Test_Mode")
+    if test_mode:
+        module.write("AWS_Test_Mode", 0)
+        ctx.log(f"Scan_Disable: AWS_Test_Mode {test_mode} -> 0 while the lanes are disabled")
     try:
         for ch in ctx.channels:
             ctx.check_abort()
@@ -153,3 +159,5 @@ def scan_disable(ctx: RunContext) -> None:
                 ctx.on_data("mpd_tops_off", {"ch": ch, "tops_off_v": best_v, "leakage_dbm": leakage})
     finally:
         module.write("W_TXDis", 0x00)
+        if test_mode:
+            module.write("AWS_Test_Mode", test_mode)
