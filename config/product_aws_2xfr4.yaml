@@ -37,6 +37,16 @@ tx_power_meter:
   wavelengths_nm: [1270, 1290, 1310, 1330, 1270, 1290, 1310, 1330]
   avg_time_ms: 100
 
+tx_loss:
+  # Before measuring, wait for the golden sample's DDMI temperature to settle, as the
+  # production Tx Loss tool does: a reading every 15 s, stable after 3 readings in a row
+  # that each changed by less than 0.1 degC.
+  stabilize: true
+  interval_s: 15
+  threshold_c: 0.1
+  consecutive: 3
+  timeout_s: 1800
+
 tx_cal:
   bias_ma: [60, 180]               # other 2xFR4: [70, 130]
   settle_s: 2.0

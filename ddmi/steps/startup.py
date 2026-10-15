@@ -31,6 +31,12 @@ def auto_adjust_vcc(ctx: RunContext, target: float) -> float:
     """Trim the supply until the voltage at the module is within tolerance; return that voltage."""
     tol = ctx.product["vcc"]["adjust_tolerance_v"]
     supply = ctx.bench.power_supply
+    if ctx.module.dry_run and not ctx.module.is_sim:
+        # The supply is not changed in a real dry run; report what it is at now.
+        supply.set_voltage(target)
+        actual = supply.read_module_voltage()
+        ctx.log(f"VCC (dry-run): would adjust to {target} V; supply reads {actual:.4f} V and is left as it is")
+        return actual
     setting = target
     for attempt in range(1, VCC_MAX_TRIES + 1):
         supply.set_voltage(setting)

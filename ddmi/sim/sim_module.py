@@ -132,7 +132,7 @@ class SimModule:
     def _read_value(self, name: str):
         lanes = range(LANES)
         if name == "R_DTEMP":
-            return self.temp_c + self.rng.gauss(0, 0.2)
+            return self.temp_c + self.rng.gauss(0, 0.02)
         if name == "R_DVCC":
             return (self.vcc_cal[0] * self._vcc_adc() + self.vcc_cal[1]) / 10000
         if name == "R_Information":
@@ -170,9 +170,9 @@ class SimModule:
         if name in ("DTXPCal_A", "DTXPCal_B", "DRXPCal_A", "DRXPCal_B"):
             slopes, offsets = self.tx_cal if name.startswith("DTXP") else self.rx_cal
             half = slice(0, 4) if name.endswith("_A") else slice(4, 8)
-            return slopes[half] + offsets[half]
+            return offsets[half] + slopes[half]        # offsets first, as on the real module
         if name == "VccCal":
-            return list(self.vcc_cal)
+            return [self.vcc_cal[1], self.vcc_cal[0]]  # offset, slope
         if name in self.modes:
             return self.modes[name]
         return 0
@@ -205,9 +205,9 @@ class SimModule:
         elif name in ("DTXPCal_A", "DTXPCal_B", "DRXPCal_A", "DRXPCal_B"):
             slopes, offsets = self.tx_cal if name.startswith("DTXP") else self.rx_cal
             start = 0 if name.endswith("_A") else 4
-            slopes[start:start + 4] = value[:4]
-            offsets[start:start + 4] = value[4:]
+            offsets[start:start + 4] = value[:4]
+            slopes[start:start + 4] = value[4:]
         elif name == "VccCal":
-            self.vcc_cal = (value[0], value[1])
+            self.vcc_cal = (value[1], value[0])        # stored offset, slope
         elif name in self.modes:
             self.modes[name] = value

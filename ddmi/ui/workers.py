@@ -61,6 +61,7 @@ class FlowWorker(_Worker):
 
 
 class TxLossWorker(_Worker):
+    temp = pyqtSignal(object)        # one temperature-stabilization sample (dict)
     done = pyqtSignal(int, object)   # slot, rows (ch, wavelength_nm, golden_dbm, measured_dbm, loss_db) or None
 
     def __init__(self, slot_id: int, station_cfg: dict, product: dict, component_id: str):
@@ -71,7 +72,8 @@ class TxLossWorker(_Worker):
         rows = None
         try:
             rows = calibrate_tx_loss(self.station_cfg, self.product, slot=self.slot_id,
-                                     component_id=self.component_id, log=self.say)
+                                     component_id=self.component_id, log=self.say,
+                                     on_temp=self.temp.emit, abort=self._abort)
         except Exception as exc:
             self.say(f"ERROR: {type(exc).__name__}: {exc}")
         self.done.emit(self.slot_id, rows)
@@ -99,7 +101,7 @@ class RxTableWorker(_Worker):
     ATTS = ATT_STEPS_DB
 
     def run(self):
-        table = None
+        table, closer = None, None
         total = self.product["channels"] * len(self.ATTS)
         count = 0
 
@@ -111,10 +113,14 @@ class RxTableWorker(_Worker):
 
         try:
             station = build_station(self.station_cfg, slot=self.slot_id)
+            closer = station.close
             table = build_rx_table(station.bench, self.product["rx_cal"]["wavelengths_nm"],
                                    settle_s=0.01 if station.sim_module else 0.5,
                                    log=self.say, on_point=on_point, on_prompt=self._ask,
                                    abort=self._abort)
         except Exception as exc:
             self.say(f"ERROR: {type(exc).__name__}: {exc}")
+        finally:
+            if closer:
+                closer()
         self.done.emit(self.slot_id, table)

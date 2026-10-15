@@ -102,6 +102,13 @@ def validate_product(cfg: dict) -> dict:
     if _get(cfg, "tx_power_meter.avg_time_ms") not in (100, 200, 500):
         raise ConfigError("tx_power_meter.avg_time_ms must be 100, 200 or 500")
 
+    if not isinstance(_get(cfg, "tx_loss.stabilize"), bool):
+        raise ConfigError("tx_loss.stabilize must be true or false")
+    _number(cfg, "tx_loss.interval_s", 0)
+    _number(cfg, "tx_loss.threshold_c", 0.001)
+    _number(cfg, "tx_loss.consecutive", 1)
+    _number(cfg, "tx_loss.timeout_s", 1)
+
     low, high = _numbers(cfg, "tx_cal.bias_ma", 2)
     if low == high:
         raise ConfigError("tx_cal.bias_ma needs two different bias points")
@@ -139,6 +146,9 @@ def validate_station(cfg: dict) -> dict:
         entry = _get(cfg, name)
         if not isinstance(entry, dict) or not isinstance(entry.get("type"), str):
             raise ConfigError(f"{name} must be a mapping with a 'type'")
+    ps = cfg["power_supply"]
+    if "max_voltage_v" in ps:
+        _number(cfg, "power_supply.max_voltage_v", 3.3, 4.5)
     att = cfg["attenuator"]
     if "lane_channels" in att:
         lanes = att["lane_channels"]

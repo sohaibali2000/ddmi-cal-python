@@ -7,7 +7,7 @@ dependencies = ["pyyaml", "numpy", "PyQt5==5.15.11", "pyqtgraph==0.13.7"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
-lab = ["pyodbc", "pythonnet"]   # MES database and the LX power meter DLL
+lab = ["pyodbc", "pythonnet", "pyserial"]   # MES database, LX meter DLL, serial instruments
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

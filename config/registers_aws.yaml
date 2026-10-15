@@ -10,7 +10,7 @@
 # fmt:  u8, u16, s16_div256, u16_scaled (value = raw * scale), ascii,
 #       u16_array, u16_scaled_array (raw = value * scale), u16le / u16le_array (little-endian),
 #       bytes (list of raw byte values),
-#       volt_array (raw = V / full_scale * 4095), f32_array
+#       volt_array (raw = V / full_scale * 4095), f32_array, f32le_array (little-endian)
 
 registers:
   # --- standard CMIS ---
@@ -46,11 +46,16 @@ registers:
 
   # --- calibration storage: 4 slopes then 4 offsets per page, 4 bytes per value ---
   # UNVERIFIED: float32 and big-endian are assumptions, and so is "EC = CH1-4, ED = CH5-8".
-  DTXPCal_A:      {page: 0xEC, byte: 0xC0, len: 32, fmt: f32_array, conf: UNVERIFIED}
-  DTXPCal_B:      {page: 0xED, byte: 0xC0, len: 32, fmt: f32_array, conf: UNVERIFIED}
-  DRXPCal_A:      {page: 0xEC, byte: 0x90, len: 32, fmt: f32_array, conf: UNVERIFIED}
-  DRXPCal_B:      {page: 0xED, byte: 0x90, len: 32, fmt: f32_array, conf: UNVERIFIED}
-  VccCal:         {page: 0xEB, byte: 0x90, len: 8,  fmt: f32_array, conf: UNVERIFIED}   # slope, offset
+  # Read from a calibrated AOI module (2026-10-14): float32 LITTLE-endian, the 4 OFFSETS
+  # come first and then the 4 slopes (the build map had slope/offset the other way round);
+  # EC holds CH1-4, ED CH5-8. Confirmed for TX and VCC: offset + slope * raw monitor
+  # reproduces the module's own DDMI value exactly. RX has the same layout and plausible
+  # values (slopes 15-18) but could not be checked without light on the receiver.
+  DTXPCal_A:      {page: 0xEC, byte: 0xC0, len: 32, fmt: f32le_array, conf: HW}           # offsets CH1-4, slopes CH1-4
+  DTXPCal_B:      {page: 0xED, byte: 0xC0, len: 32, fmt: f32le_array, conf: HW}           # offsets CH5-8, slopes CH5-8
+  DRXPCal_A:      {page: 0xEC, byte: 0x90, len: 32, fmt: f32le_array, conf: UNVERIFIED}
+  DRXPCal_B:      {page: 0xED, byte: 0x90, len: 32, fmt: f32le_array, conf: UNVERIFIED}
+  VccCal:         {page: 0xEB, byte: 0x90, len: 8,  fmt: f32le_array, conf: HW}           # offset, slope
 
   # --- mode registers: page/byte order unconfirmed (build map 5.5) ---
   AWS_Test_Mode:      {page: 0xEE, byte: 0x80, len: 1, fmt: u8, conf: UNVERIFIED}   # 1 = enter test mode

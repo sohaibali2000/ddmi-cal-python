@@ -80,6 +80,35 @@ class LaneAttenuator:
         self.attenuator.set_attenuation(channel, db)
 
 
+class DryRunSupply:
+    """Dry run on real hardware: the supply is read, never set (each intended setting is logged)."""
+
+    def __init__(self, supply, log):
+        self.supply, self.log = supply, log
+
+    def set_voltage(self, volts: float) -> None:
+        self.log(f"SUPPLY (dry-run, not sent) set {volts:.3f} V")
+
+    def read_current(self) -> float:
+        return self.supply.read_current()
+
+    def read_module_voltage(self) -> float:
+        return self.supply.read_module_voltage()
+
+
+class DryRunAttenuator:
+    """Dry run on real hardware: the attenuator is never changed (each intended setting is logged)."""
+
+    def __init__(self, log):
+        self.log = log
+
+    def set_wavelength(self, ch: int, nm: float) -> None:
+        self.log(f"ATTENUATOR (dry-run, not sent) CH{ch} wavelength {nm} nm")
+
+    def set_attenuation(self, ch: int, db: float) -> None:
+        self.log(f"ATTENUATOR (dry-run, not sent) CH{ch} {db:.2f} dB")
+
+
 class RxInputMeter(Protocol):
     """Power meter at the module's RX input; only needed to build the RX table."""
 

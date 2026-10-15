@@ -53,6 +53,16 @@ class LossPage(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         lay.addWidget(self.table, 2)
 
+        temp_row = QHBoxLayout()
+        temp_row.addWidget(QLabel("<b>Golden sample temperature (DDMI):</b>"))
+        self.temp_status = QLabel("not read yet")
+        temp_row.addWidget(self.temp_status, 1)
+        self.btn_stop = QPushButton("Stop")
+        self.btn_stop.setEnabled(False)
+        self.btn_stop.clicked.connect(self.on_stop_click)
+        temp_row.addWidget(self.btn_stop)
+        lay.addLayout(temp_row)
+
         btns = QHBoxLayout()
         self.btn_tx_cal = QPushButton("Tx Loss Calibration")
         self.btn_save = QPushButton("Save Edited Tx Loss")
@@ -90,7 +100,8 @@ class LossPage(QWidget):
         reply = QMessageBox.question(
             self, "Tx Loss Calibration",
             f"Start Tx Loss Calibration for Slot-{slot_id}?\n\n"
-            "Ensure the golden sample is inserted, powered and connected to the power meter.",
+            "Ensure the golden sample is inserted, powered, and TX1 and TX2 are connected to the "
+            "power meter.\n\nThe measurement starts once the module temperature is stable.",
             QMessageBox.Yes | QMessageBox.No)
         if reply != QMessageBox.Yes:
             return
@@ -99,8 +110,23 @@ class LossPage(QWidget):
         self._worker = TxLossWorker(slot_id, self.engine.slot_station_cfg(slot_id), self.engine.product,
                                     component_id)
         self._worker.log.connect(self._on_worker_log)
+        self._worker.temp.connect(self._on_temp)
         self._worker.done.connect(self._on_tx_cal_done)
+        self.btn_stop.setEnabled(True)
+        self.temp_status.setText("waiting for the first reading...")
         self._worker.start()
+
+    def on_stop_click(self):
+        if self._worker is not None and self._worker.isRunning():
+            self._worker.abort()
+            self.log("Stop requested")
+
+    @pyqtSlot(object)
+    def _on_temp(self, sample: dict):
+        delta = "--" if sample["delta_c"] is None else f"{sample['delta_c']:.3f} °C"
+        stable = sample["status"].startswith("STABLE")
+        self.temp_status.setText(f"Current: {sample['temp_c']:.3f} °C   Δ: {delta}   Status: {sample['status']}")
+        self.temp_status.setStyleSheet(f"font-weight: 700; color: {'#218838' if stable else '#b8860b'};")
 
     @pyqtSlot(int, str)
     def _on_worker_log(self, _slot_id: int, text: str):
@@ -110,6 +136,7 @@ class LossPage(QWidget):
     def _on_tx_cal_done(self, slot_id: int, rows):
         self.btn_tx_cal.setText("Tx Loss Calibration")
         self.btn_tx_cal.setEnabled(True)
+        self.btn_stop.setEnabled(False)
         if not rows:
             return
         self._last[slot_id] = rows

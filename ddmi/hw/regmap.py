@@ -10,7 +10,7 @@ import yaml
 from ..config import CONFIG_DIR, ConfigError
 
 FORMATS = ("u8", "u16", "u16le", "s16_div256", "u16_scaled", "ascii", "u16_array", "u16le_array", "bytes",
-           "u16_scaled_array", "volt_array", "f32_array")
+           "u16_scaled_array", "volt_array", "f32_array", "f32le_array")
 CONFIDENCE = ("STD", "CODE", "HW", "UNVERIFIED")
 
 
@@ -66,6 +66,8 @@ class Register:
             return [w / 4095 * self.full_scale for w in words]
         if fmt == "f32_array":
             return list(struct.unpack(f">{len(data) // 4}f", data))
+        if fmt == "f32le_array":
+            return list(struct.unpack(f"<{len(data) // 4}f", data))
         raise ValueError(f"{self.name}: unknown format {fmt}")
 
     def encode(self, value) -> bytes:
@@ -94,6 +96,8 @@ class Register:
             data = b"".join(_u16(v / self.full_scale * 4095).to_bytes(2, "big") for v in value)
         elif fmt == "f32_array":
             data = struct.pack(f">{len(value)}f", *value)
+        elif fmt == "f32le_array":
+            data = struct.pack(f"<{len(value)}f", *value)
         else:
             raise ValueError(f"{self.name}: unknown format {fmt}")
         if len(data) != self.length:

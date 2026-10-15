@@ -1,11 +1,11 @@
 """Build the module + instruments for one slot from the station config."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 from .config import INSTRUMENTS
-from .hw.base import Bench
+from .hw.base import Bench, LaneAttenuator
 from .hw.module import Module
 from .hw.regmap import load_regmap
 from .sim.sim_bench import SimBench
@@ -18,6 +18,15 @@ class Station:
     bench: Bench
     sim_module: SimModule | None = None
     sim_bench: SimBench | None = None
+    closers: list = field(default_factory=list)
+
+    def close(self) -> None:
+        """Release every instrument (serial ports, the attenuator host process)."""
+        while self.closers:
+            try:
+                self.closers.pop()()
+            except Exception:
+                pass
 
 
 def is_sim(station_cfg: dict) -> bool:
@@ -42,10 +51,64 @@ def build_station(station_cfg: dict, *, slot: int = 1, sim_sn: str = "", fault: 
                         allow_unverified=allow_unverified, log=log)
         return Station(module, sim_bench.as_bench(), sim, sim_bench)
 
-    real = [f"{name}: {station_cfg[name]['type']}" for name in INSTRUMENTS
-            if station_cfg[name]["type"] != "sim"]
-    raise NotImplementedError(
-        "No hardware drivers yet (build map phase 14). Station config asks for " + ", ".join(real))
+    return _build_real_station(station_cfg, regmap, dry_run, allow_unverified, log)
+
+
+def _build_real_station(station_cfg: dict, regmap, dry_run: bool, allow_unverified: bool,
+                        log: Callable[[str], None]) -> Station:
+    from .hw.attenuator_at4308 import AttenuatorAT4308
+    from .hw.base import DryRunAttenuator, DryRunSupply, LaneAttenuator
+    from .hw.i2c_usbiss import UsbIssBus
+    from .hw.ports import resolve_port
+    from .hw.power_supply_gpp import GppSupply
+
+    kinds = {name: station_cfg[name]["type"] for name in INSTRUMENTS}
+    supported = {"i2c": "usb_iss", "power_supply": "gw_gpp", "power_meter": "lx_mpo", "attenuator": "at4308"}
+    unknown = [f"{name}: {kind}" for name, kind in kinds.items() if kind != supported[name]]
+    if unknown:
+        raise NotImplementedError("no driver for " + ", ".join(unknown)
+                                  + f" (supported: {', '.join(f'{k}: {v}' for k, v in supported.items())})")
+
+    closers = []
+    try:
+        i2c = station_cfg["i2c"]
+        bus = UsbIssBus(resolve_port(i2c["resource"]), address=i2c.get("address", 0x50), log=log).open()
+        closers.append(bus.close)
+        if not bus.present():
+            raise RuntimeError(f"no module answers on {bus.port} - is the DUT inserted and powered?")
+        module = Module(bus, regmap, is_sim=False, dry_run=dry_run, allow_unverified=allow_unverified, log=log)
+
+        ps = station_cfg["power_supply"]
+        supply = GppSupply(resolve_port(ps["resource"]), channel=ps.get("channel", 1),
+                           max_voltage_v=ps.get("max_voltage_v", 3.9), log=log).open()
+        closers.append(supply.close)
+        if not supply.output_on():
+            raise RuntimeError(f"the DUT supply output (CH{supply.channel}) is off - switch it on first")
+
+        meter = build_power_meter(station_cfg, log)
+        closers.append(meter.close)
+
+        att_cfg = station_cfg["attenuator"]
+        att = AttenuatorAT4308(resolve_port(att_cfg["resource"]), att_cfg["dll_dir"], log=log)
+        att.connect()
+        closers.append(att.close)
+        attenuator = LaneAttenuator(att, att_cfg.get("lane_channels", list(range(1, 9))),
+                                    att_cfg.get("min_att_db", 0.0))
+    except Exception:
+        for close in reversed(closers):
+            try:
+                close()
+            except Exception:
+                pass
+        raise
+    if dry_run:
+        # Nothing is set on any instrument either: the supply's measured voltage is at its
+        # terminals, so even "adjusting to 3.3 V" could drop the module out.
+        supply = DryRunSupply(supply, log)
+        attenuator = LaneAttenuator(DryRunAttenuator(log), attenuator.lane_channels, attenuator.min_att_db)
+    # No RX input meter on this station yet: the RX table tool says so instead of guessing.
+    bench = Bench(power_supply=supply, power_meter=meter, attenuator=attenuator, rx_meter=None)
+    return Station(module, bench, closers=closers)
 
 
 def build_power_meter(station_cfg: dict, log: Callable[[str], None] = print):
@@ -53,9 +116,10 @@ def build_power_meter(station_cfg: dict, log: Callable[[str], None] = print):
     which needs no module register access (as in the production Tx Loss tool)."""
     cfg = station_cfg["power_meter"]
     if cfg["type"] == "lx_mpo":
+        from .hw.ports import resolve_port
         from .hw.power_meter_lx import PowerMeterLX
 
-        meter = PowerMeterLX(cfg["resource"], cfg["dll"], log=log)
+        meter = PowerMeterLX(resolve_port(cfg["resource"]), cfg["dll"], log=log)
         meter.connect()
         return meter
     raise NotImplementedError(f"no driver for power meter type {cfg['type']!r} (supported: lx_mpo)")

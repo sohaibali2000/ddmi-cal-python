@@ -12,7 +12,7 @@ def vcc_cal(ctx: RunContext) -> None:
     module.write_value("DSP_TestMode", "dsp_debug")           # W_Debug_AWS = 1
     module.write_value("DSP_OperatingMode", "dsp_dual")       # W_Daul_AWS = 5
     try:
-        module.write("VccCal", [0.0, 0.0])
+        module.write_vcc_cal(0.0, 0.0)
         ctx.log("VCC cal: unlocked, old calibration cleared")
         points = []
         for target in cfg["cal_points_v"]:
@@ -29,7 +29,7 @@ def vcc_cal(ctx: RunContext) -> None:
             ctx.results.add("Vcc_Slope", 0, None)
             ctx.results.add("Vcc_Offset", 0, None)
         else:
-            module.write("VccCal", [slope, offset])
+            module.write_vcc_cal(slope, offset)
             ctx.results.add("Vcc_Slope", 0, round(slope, 4))
             ctx.results.add("Vcc_Offset", 0, round(offset, 1))
             ctx.log(f"W_VccCal written: slope {slope:.4f}, offset {offset:.1f}")
@@ -43,7 +43,7 @@ def vcc_check(ctx: RunContext) -> None:
     module = ctx.module
     actual = auto_adjust_vcc(ctx, ctx.product["vcc"]["nominal_v"])
     ddmi = module.read("R_DVCC")
-    ctx.detail(f"R_VccCal read back: {module.read('VccCal')}")
+    ctx.detail(f"R_VccCal read back (slope, offset): {module.read_vcc_cal()}")
     ctx.results.add("Real_Vcc(V)", 0, round(actual, 3))
     ctx.results.add("DDMI_Vcc(V)", 0, round(ddmi, 3))
     ctx.results.add("dVcc(V)", 0, round(actual - ddmi, 3))

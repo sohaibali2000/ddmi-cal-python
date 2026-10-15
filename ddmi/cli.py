@@ -55,7 +55,7 @@ def cmd_tx_loss(args) -> int:
         golden = dict(enumerate(values, start=1))
     try:
         rows = calibrate_tx_loss(station_cfg, product, slot=args.slot, component_id=args.component_id,
-                                 golden_dbm=golden)
+                                 golden_dbm=golden, stabilize=False if args.no_stabilize else None)
     except ValueError as exc:
         print(f"error: {exc}")
         return 2
@@ -115,6 +115,72 @@ def cmd_probe(args) -> int:
     return 0
 
 
+def cmd_calcheck(args) -> int:
+    """Read-only: decode the calibration pages (EC/ED/EB) in every candidate format and test
+    each against the module's own DDMI readings. Answers how slope/offset are stored."""
+    import struct
+
+    from .hw.i2c_usbiss import UsbIssBus
+    from .hw.module import Module
+    from .hw.ports import resolve_port
+    from .hw.regmap import load_regmap
+
+    def candidates(raw: bytes, count: int) -> dict:
+        """count values from raw bytes in each plausible encoding."""
+        out = {}
+        if len(raw) >= 4 * count:
+            out["float32 big-endian"] = list(struct.unpack(f">{count}f", raw[:4 * count]))
+            out["float32 little-endian"] = list(struct.unpack(f"<{count}f", raw[:4 * count]))
+            out["int32 big-endian /256"] = [v / 256 for v in struct.unpack(f">{count}i", raw[:4 * count])]
+        return out
+
+    regmap = load_regmap()
+    with UsbIssBus(resolve_port(args.port)) as bus:
+        module = Module(bus, regmap, is_sim=False)
+        try:
+            txmon, rssi, vccadc = module.read("R_TXMON"), module.read("R_RSSI"), module.read("R_VCCADC")
+            dtxp, drxp, dvcc = module.read("R_DTXP"), module.read("R_DRXP"), module.read("R_DVCC")
+            pages = {name: bus.read(regmap[name].page, regmap[name].byte, regmap[name].length)
+                     for name in ("DTXPCal_A", "DTXPCal_B", "DRXPCal_A", "DRXPCal_B", "VccCal")}
+        finally:
+            bus.write(0, 0x7F, bytes([0]))
+    for name, raw in pages.items():
+        print(f"{name} raw: {raw.hex(' ')}")
+    print(f"TXMON {txmon}  DDMI TxP (0.1 uW) {dtxp}")
+    print(f"RSSI {rssi}  DDMI RxP (0.1 uW) {drxp}")
+    print(f"VCC ADC {vccadc}  DDMI VCC {dvcc:.4f} V")
+
+    def report(label, a_raw, b_raw, monitor, ddmi):
+        print(f"\n{label}: does slope * monitor + offset reproduce the module's DDMI value?")
+        for order in ("EC = CH1-4", "ED = CH1-4"):
+            first, second = (a_raw, b_raw) if order == "EC = CH1-4" else (b_raw, a_raw)
+            for fmt in candidates(first, 8):
+                a, b = candidates(first, 8)[fmt], candidates(second, 8)[fmt]
+                for layout in ("slopes first", "offsets first"):
+                    if layout == "slopes first":
+                        slopes, offsets = a[:4] + b[:4], a[4:] + b[4:]
+                    else:
+                        slopes, offsets = a[4:] + b[4:], a[:4] + b[:4]
+                    pred = [s * m + o for s, m, o in zip(slopes, monitor, offsets)]
+                    err = [abs(p - d) / max(d, 1) for p, d in zip(pred, ddmi)]
+                    ok = all(e < 0.02 for e in err)
+                    print(f"  {fmt:22} {order}, {layout:13}: {'MATCH' if ok else 'no   '}  "
+                          f"slopes {[round(s, 3) for s in slopes]}")
+
+    report("TX", pages["DTXPCal_A"], pages["DTXPCal_B"], txmon, dtxp)
+    if any(drxp):
+        report("RX", pages["DRXPCal_A"], pages["DRXPCal_B"], rssi, drxp)
+    else:
+        print("\nRX: DDMI RxP is 0 (no light on the receiver), so the RX format cannot be checked this way.")
+    print("\nVCC: does slope * ADC + offset reproduce DDMI VCC (in 100 uV)?")
+    for fmt, vals in candidates(pages["VccCal"], 2).items():
+        for layout, (slope, offset) in (("slope first", vals), ("offset first", vals[::-1])):
+            pred = slope * vccadc + offset
+            print(f"  {fmt:22} {layout:12}: slope {slope:.5g}, offset {offset:.5g} -> {pred / 10000:.4f} V "
+                  f"({'MATCH' if abs(pred - dvcc * 10000) < 0.02 * dvcc * 10000 else 'no'})")
+    return 0
+
+
 def cmd_rx_table(args) -> int:
     station_cfg = config.load_station(args.station)
     product = config.load_product(args.product)
@@ -125,7 +191,10 @@ def cmd_rx_table(args) -> int:
             return True
         return input(message + " Press Enter to continue, or type q to stop: ").strip().lower() != "q"
 
-    table = build_rx_table(station.bench, product["rx_cal"]["wavelengths_nm"], on_prompt=ask)
+    try:
+        table = build_rx_table(station.bench, product["rx_cal"]["wavelengths_nm"], on_prompt=ask)
+    finally:
+        station.close()
     if table is None:
         print("Not saved")
         return 1
@@ -136,6 +205,11 @@ def cmd_rx_table(args) -> int:
 
 
 def main(argv=None) -> int:
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")    # a Windows console can't show every character (e.g. delta)
+        except (AttributeError, ValueError):
+            pass
     parser = argparse.ArgumentParser(prog="ddmi", description="800G DDMI Cal (AWS 2xFR4)")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -155,6 +229,8 @@ def main(argv=None) -> int:
                     help="golden sample Component ID / SN; its power is read from the MES database")
     tx.add_argument("--golden", help="golden power instead of MES: 8 comma-separated dBm values")
     tx.add_argument("--yes", action="store_true", help="save without asking")
+    tx.add_argument("--no-stabilize", action="store_true",
+                    help="skip waiting for the golden sample's temperature to settle")
     tx.set_defaults(func=cmd_tx_loss)
 
     probe = sub.add_parser("probe", help="read-only check of the modules on the USB-ISS adapters")
@@ -163,6 +239,10 @@ def main(argv=None) -> int:
                        help="also read DDMI and raw monitors (page-select writes + vendor password; values read only)")
     probe.set_defaults(func=cmd_probe)
 
+    calcheck = sub.add_parser("calcheck", help="read-only: work out how the module stores slope/offset")
+    calcheck.add_argument("--port", default="usb-sn:00071351", help="DUT USB-ISS (COMx or usb-sn:...)")
+    calcheck.set_defaults(func=cmd_calcheck)
+
     rx = sub.add_parser("rx-table", help="build the RX attenuation table")
     _common(rx)
     rx.set_defaults(func=cmd_rx_table)
@@ -170,7 +250,8 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (config.ConfigError, NotImplementedError, FileNotFoundError, ImportError, RuntimeError) as exc:
+    except (config.ConfigError, NotImplementedError, FileNotFoundError, ImportError, RuntimeError,
+            LookupError) as exc:
         print(f"error: {exc}")
         return 2
 
