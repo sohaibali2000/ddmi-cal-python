@@ -26,3 +26,5 @@ attenuator: {type: at4308, resource: "usb-loc:.4.4.2", dll_dir: "C:/Users/Syed_A
 tx_loss_file: station_data/lab/system.ini
 rx_table_dir: station_data/lab/rx_tables
 results_dir: results
+# Every PASS is also saved as an Excel file here (temporary location while testing).
+excel_dir: C:/Users/Syed_Ali/Desktop/ddmi_python_test

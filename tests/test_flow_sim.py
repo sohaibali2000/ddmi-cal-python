@@ -290,3 +290,19 @@ def test_ignored_vendor_writes_leave_every_calibration_untouched(station_cfg, pr
     assert record["result"] == "ERROR"
     assert after == before
     assert any("discarded the write" in f for f in record["failing_items"]), record["failing_items"]
+
+
+def test_pass_is_saved_as_excel(station_cfg, product, tmp_path):
+    openpyxl = pytest.importorskip("openpyxl")
+    station_cfg = dict(station_cfg, excel_dir=str(tmp_path / "xlsx"))
+    record = run(station_cfg, product)
+    assert record["result"] == "PASS"
+    files = list((tmp_path / "xlsx").glob("*_PASS.xlsx"))
+    assert len(files) == 1
+    ws = openpyxl.load_workbook(files[0]).active
+    rows = {r[0]: r for r in ws.iter_rows(values_only=True) if r and r[0]}
+    assert rows["SN"][1] == record["sn"]
+    assert rows["Result"][1] == "PASS"
+    vcc = record["results"]["Real_Vcc(V)"]["module"]["value"]
+    assert list(rows["Real_Vcc(V)"][1:9]) == [vcc] * 8          # module value in all 8 columns
+    assert rows["dTxP(dB)"][1] == record["results"]["dTxP(dB)"]["ch1"]["value"]

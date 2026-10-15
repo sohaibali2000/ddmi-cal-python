@@ -169,6 +169,13 @@ def run_slot(*, station_cfg: dict, product: dict, slot: int = 1, scanned_sn: str
             log(stamp(f"Record saved: {path.name}"))
         except OSError as exc:
             log(stamp(f"ERROR: could not save record: {exc}"))
+        if record["result"] == "PASS" and station_cfg.get("excel_dir"):
+            try:
+                from .excel import save_excel
+                xlsx = save_excel(record, _path(station_cfg["excel_dir"]))
+                log(stamp(f"Excel saved: {xlsx}"))
+            except Exception as exc:        # never lose a PASS over the Excel copy
+                log(stamp(f"ERROR: could not save the Excel file: {exc}"))
         return record
     finally:
         if own_station:
