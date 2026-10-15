@@ -46,6 +46,32 @@ class Engine(QObject):
         self.run_data = {s: RunData() for s in range(1, params.MAX_SLOTS + 1)}
         self.workers: dict[int, FlowWorker] = {}
         self.user_id = ""
+        self._show_last_records()
+
+    def _show_last_records(self):
+        """After a restart, show each slot's last saved run instead of an empty table."""
+        try:
+            records = self.records.load_all()          # newest first
+        except OSError:
+            return
+        for rec in records:
+            slot = rec.get("slot")
+            if slot not in self.run_data or self.run_data[slot].meta.get("start_time"):
+                continue
+            rd = self.run_data[slot]
+            rd.meta.update(state=rec.get("result", "ERROR"), sn=rec.get("sn", ""),
+                           start_time=rec.get("start_time", ""), end_time=rec.get("end_time", ""),
+                           elapsed=rec.get("elapsed", ""), failing_items=rec.get("failing_items", []),
+                           from_record=True)
+            for item, cells in rec.get("results", {}).items():
+                for key, cell in cells.items():
+                    ch = 0 if key == "module" else int(key.replace("ch", ""))
+                    rd.results.setdefault(item, {})[ch] = {"value": cell.get("value"), "ok": cell.get("ok", True)}
+            scan = rec.get("mpd_scan")
+            if scan and scan.get("volts"):
+                rd.mpd = {"volts": list(scan["volts"]), "curves": [list(c) for c in scan["curves"]],
+                          "lanes": {int(k): v for k, v in scan.get("lanes", {}).items()},
+                          "planned": len(scan["volts"])}
 
     def slot_station_cfg(self, slot_id: int) -> dict:
         """The station config for one slot, named <station id>-<slot name> as LabVIEW does."""

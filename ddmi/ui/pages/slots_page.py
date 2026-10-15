@@ -89,7 +89,9 @@ class SlotsPage(QWidget):
     def refresh_from_state(self):
         rd = self.engine.run_data[self.current_slot_id]
         state = rd.meta.get("state", "IDLE")
-        self.lbl_info.setText(f"SN: {rd.meta.get('sn') or '—'}    Result: {state}")
+        last = (f"    (last saved run, {rd.meta['start_time']})"
+                if rd.meta.get("from_record") and rd.meta.get("start_time") else "")
+        self.lbl_info.setText(f"SN: {rd.meta.get('sn') or '—'}    Result: {state}{last}")
         self.lbl_info.setStyleSheet(f"font-weight: 700; color: {STATE_COLORS.get(state, '#555')};")
         for param, row in self._rows.items():
             chans = rd.results.get(param, {})
