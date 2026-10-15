@@ -9,6 +9,17 @@ from typing import Callable
 
 # Result item -> key in the product config `limits` (and in the MES spec).
 LIMIT_KEYS = {
+    "Tops_Setpoint": "tops_setpoint",
+    "Tops_Mid(V)": "tops_mid_v",
+    "Tops_off(V)": "tops_off_v",
+    "TxP(dBm)": "txp_dbm",
+    "DDMI_TxP(dBm)": "ddmi_txp_dbm",
+    "Txp_Offset": "txp_offset",
+    "Txp_Slope": "txp_slope",
+    "Rxp_Offset": "rxp_offset",
+    "Real_Vcc(V)": "real_vcc_v",
+    "Vcc_Offset": "vcc_offset",
+    "Vcc_Slope": "vcc_slope",
     "Rxp_Slope": "rx_slope",
     "Tx_Disable(dBm)": "tx_disable_dbm",
     "dTxP(dB)": "dtxp_db",

@@ -19,7 +19,7 @@ PLANS = ["DDMI Cal (V6.8, AWS 2xFR4)"]
 STEPS = STAGES
 
 TX_ROWS = [
-    "Tops_Setpoint", "Tops_off(V)", "Tx_Disable(dBm)",
+    "Tops_Setpoint", "Tops_Mid(V)", "Tops_off(V)", "Tx_Disable(dBm)",
     "Txp_Slope", "Txp_Offset",
     "TxP(dBm)", "DDMI_TxP(dBm)", "dTxP(dB)",
 ]

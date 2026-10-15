@@ -68,9 +68,13 @@ def scan_mpd(ctx: RunContext) -> None:
         module.write("Vtops", [points[ch][key] if ch in points
                                else (valley_v[ch] if valley_v[ch] is not None else current_v[ch - 1])
                                for ch in ctx.channels])
+        ctx.sleep(cfg.get("op_point_settle_s", 0.0))
         txmon, mpd_out = module.read("R_TXMON"), module.read("R_MPD_OUT")
         ctx.detail(f"op point {key}: TXMON {txmon}, MPD_OUT {mpd_out}")
         if key != "mid":
+            # MPD_OUT at each operating point: the production CSV's TXP_MPDOut columns
+            for ch in points:
+                scan["lanes"][ch].setdefault("mpd_out", {})[str(key)] = mpd_out[ch - 1]
             continue
         for ch in ctx.channels:
             value = None
@@ -82,6 +86,7 @@ def scan_mpd(ctx: RunContext) -> None:
                 except ValueError as exc:
                     ctx.log(f"CH{ch}: {exc}")
             ctx.results.add("Tops_Setpoint", ch, value)
+            ctx.results.add("Tops_Mid(V)", ch, round(points[ch]["mid"], 3) if ch in points else None)
 
     module.write("tops_setpoint", setpoints)
     current_off = module.read("tops_off")

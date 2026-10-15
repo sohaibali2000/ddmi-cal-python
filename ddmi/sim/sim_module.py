@@ -32,8 +32,8 @@ class SimModule:
         self.phi0 = [rng.uniform(0, 2 * math.pi) for _ in range(LANES)]
         self.insertion = [0.8 * rng.uniform(0.9, 1.1) for _ in range(LANES)]
         self.floor = 1e-5
-        self.g_tx = [4.1 * rng.uniform(0.9, 1.1) for _ in range(LANES)]
-        self.g_mpd = [2.58 * rng.uniform(0.9, 1.1) for _ in range(LANES)]
+        self.g_tx = [0.3 * rng.uniform(0.9, 1.1) for _ in range(LANES)]   # real module: TXMON ~500 at ~1.7 mW
+        self.g_mpd = [0.19 * rng.uniform(0.9, 1.1) for _ in range(LANES)]  # same ratio to g_tx as before
         self.dark = [rng.uniform(30, 60) for _ in range(LANES)]
         self.g_rx = [1.0 * rng.uniform(0.95, 1.05) for _ in range(LANES)]   # counts per uW -> slope ~10
         self.temp_c = 42.5
@@ -51,7 +51,7 @@ class SimModule:
         self.tx_dis = 0
         self.tx_cal = ([1.0] * LANES, [0.0] * LANES)
         self.rx_cal = ([1.0] * LANES, [0.0] * LANES)
-        self.vcc_cal = (1.2, 0.0)       # deliberately off, so the VCC cal has work to do
+        self.vcc_cal = (25.0, 0.0)      # deliberately off, so the VCC cal has work to do
         self.modes = {"AWS_Test_Mode": 0, "TestMode": 0, "DSP_TestMode": 0,
                       "DSP_OperatingMode": 0, "TempOffFunc": 1}
         self.resets = 0
@@ -65,7 +65,7 @@ class SimModule:
         return NORMAL_BIAS_MA if self.bias_loop else self.bias_cmd[laser]
 
     def laser_mw(self, lane: int) -> float:
-        return max(0.0, 0.012 * (self.bias_ma(lane % LASERS) - 15))
+        return max(0.0, 0.04 * (self.bias_ma(lane % LASERS) - 15))   # ~2 dBm out, TXMON peak ~1000 like the real module
 
     def transmission(self, lane: int, v: float) -> float:
         fringe = 0.5 * (1 + math.cos(self.phi0[lane] + 0.8 * v * v))
@@ -120,7 +120,7 @@ class SimModule:
         return max(0, round(self.g_rx[lane] * uw + self.rng.gauss(0, 0.2)))
 
     def _vcc_adc(self) -> int:
-        return round(8000 * self.v_module + self.rng.gauss(0, 1))
+        return round(430 * self.v_module - 25 + self.rng.gauss(0, 0.5))   # real module: ~1320 counts at 3.13 V
 
     # ---- I2C ----
     def read(self, page: int, byte: int, length: int) -> bytes:

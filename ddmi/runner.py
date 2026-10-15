@@ -169,13 +169,14 @@ def run_slot(*, station_cfg: dict, product: dict, slot: int = 1, scanned_sn: str
             log(stamp(f"Record saved: {path.name}"))
         except OSError as exc:
             log(stamp(f"ERROR: could not save record: {exc}"))
-        if record["result"] == "PASS" and station_cfg.get("excel_dir"):
+        if (record["result"] in ("PASS", "FAIL") and station_cfg.get("production_csv_dir")
+                and not record.get("dry_run") and not record.get("simulated")):
             try:
-                from .excel import save_excel
-                xlsx = save_excel(record, _path(station_cfg["excel_dir"]))
-                log(stamp(f"Excel saved: {xlsx}"))
-            except Exception as exc:        # never lose a PASS over the Excel copy
-                log(stamp(f"ERROR: could not save the Excel file: {exc}"))
+                from .prod_csv import append_run
+                csv_path = append_run(record, _path(station_cfg["production_csv_dir"]))
+                log(stamp(f"Production CSV: {csv_path}"))
+            except Exception as exc:        # never lose a result over the CSV copy
+                log(stamp(f"ERROR: could not write the production CSV: {exc}"))
         return record
     finally:
         if own_station:

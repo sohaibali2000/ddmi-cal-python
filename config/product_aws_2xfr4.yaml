@@ -16,6 +16,7 @@ mpd_scan:
   # settle: read it straight after a Vtops write and the curve comes out as stale steps.
   start_settle_s: 1.0              # at the first voltage, before the sweep
   step_settle_s: 0.3               # after every Vtops step (VERIFY: "Delay Time (s)" in MPD Monitor.vi)
+  op_point_settle_s: 1.0           # after moving to each operating point, before TXMON/MPD_OUT are read
   # The fraction array as it appears in the LabVIEW code. Read as 1 - x of the peak it
   # gives the operating points at 35 / 44 / 50 / 56 % of peak (4.5 / 3.5 / 3.0 / 2.5 dB
   # below it). VERIFY against Peak Search.vi; the other modes are x_of_peak, x_of_span,
@@ -83,7 +84,19 @@ vcc:
   settle_s: 2.0
   adjust_tolerance_v: 0.01
 
-limits:                            # placeholders - replaced by the MES spec
+limits:                            # replaced by the MES spec when online
+  # From the MAX/MIN rows of the production station's CSV (2026-10 DDMI2XFR4 files).
+  tops_setpoint: [100, 2500]
+  tops_mid_v: [0, 3]
+  tops_off_v: [0, 3]
+  txp_dbm: [-3.3, 10000]
+  ddmi_txp_dbm: [-3.8, 10000]
+  txp_offset: [-10000, 10000]
+  txp_slope: [5, 150]
+  rxp_offset: [-10000, 10000]
+  real_vcc_v: [3.234, 3.366]
+  vcc_offset: [-10000, 10000]
+  vcc_slope: [15, 30]
   tx_disable_dbm: [-60, -16]
   dtxp_db: [-0.5, 0.5]
   rx_check_error_db: [-0.5, 0.5]

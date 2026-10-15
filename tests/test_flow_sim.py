@@ -37,6 +37,11 @@ def test_every_documented_limit_is_applied(station_cfg, product):
     assert record["limits"] == {
         "Rxp_Slope": [5, 30], "Tx_Disable(dBm)": [-60, -16], "dTxP(dB)": [-0.5, 0.5],
         "dRxP(dB)": [-0.5, 0.5], "dVcc(V)": [-0.033, 0.033], "DDMI_Temp(C)": [30, 60],
+        # from the production CSV's MAX/MIN rows
+        "Tops_Setpoint": [100, 2500], "Tops_Mid(V)": [0, 3], "Tops_off(V)": [0, 3],
+        "TxP(dBm)": [-3.3, 10000], "DDMI_TxP(dBm)": [-3.8, 10000],
+        "Txp_Offset": [-10000, 10000], "Txp_Slope": [5, 150], "Rxp_Offset": [-10000, 10000],
+        "Real_Vcc(V)": [3.234, 3.366], "Vcc_Offset": [-10000, 10000], "Vcc_Slope": [15, 30],
     }
     assert all(5 <= v <= 30 for v in values(record, "Rxp_Slope"))
 
@@ -76,7 +81,7 @@ def test_module_is_left_calibrated_and_in_normal_operation(station_cfg, product)
     run(station_cfg, product, station=station)
     sim = station.sim_module
     assert sim.tops_loop and sim.bias_loop and sim.tx_dis == 0
-    assert sim.vcc_cal[0] == pytest.approx(1.25, abs=0.01)
+    assert sim.vcc_cal[0] == pytest.approx(10000 / 430, abs=0.5)     # 0.1 mV per ADC count
     assert sim.modes == before                  # mode registers end exactly as they started
     assert station.sim_bench.v_set == pytest.approx(3.3, abs=0.1)
 
@@ -292,17 +297,25 @@ def test_ignored_vendor_writes_leave_every_calibration_untouched(station_cfg, pr
     assert any("discarded the write" in f for f in record["failing_items"]), record["failing_items"]
 
 
-def test_pass_is_saved_as_excel(station_cfg, product, tmp_path):
-    openpyxl = pytest.importorskip("openpyxl")
-    station_cfg = dict(station_cfg, excel_dir=str(tmp_path / "xlsx"))
+
+def test_production_csv_layout(station_cfg, product, tmp_path):
+    from ddmi.prod_csv import HEADER, append_run
     record = run(station_cfg, product)
     assert record["result"] == "PASS"
-    files = list((tmp_path / "xlsx").glob("*_PASS.xlsx"))
-    assert len(files) == 1
-    ws = openpyxl.load_workbook(files[0]).active
-    rows = {r[0]: r for r in ws.iter_rows(values_only=True) if r and r[0]}
-    assert rows["SN"][1] == record["sn"]
-    assert rows["Result"][1] == "PASS"
-    vcc = record["results"]["Real_Vcc(V)"]["module"]["value"]
-    assert list(rows["Real_Vcc(V)"][1:9]) == [vcc] * 8          # module value in all 8 columns
-    assert rows["dTxP(dB)"][1] == record["results"]["dTxP(dB)"]["ch1"]["value"]
+    path = append_run(record, tmp_path)
+    append_run(record, tmp_path)                       # second module: no second header
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert path.name.endswith("_DDMI2XFR4.csv")
+    assert lines[0].split(",") == HEADER
+    assert len(lines) == 1 + 2 * 10
+    rows = [line.split(",") for line in lines[1:11]]
+    assert [r[0] for r in rows] == ["MAX", "MIN"] + [f"CH{c}" for c in range(1, 9)]
+    assert all(len(r) == len(HEADER) for r in rows)
+    col = {name: i for i, name in enumerate(HEADER)}
+    assert rows[0][col["Tx_Disable(dBm)"]] == "-16" and rows[1][col["Tx_Disable(dBm)"]] == "-60"
+    assert rows[0][col["DDMI_Vcc"]] == "/"
+    ch1 = rows[2]
+    assert ch1[col["Result"]] == "Pass" and ch1[col["error item"]] == "0"
+    assert ch1[col["RxP1"]] == "-6"
+    assert ch1[col["TXP_MPDOut_3dB"]] != ""
+    assert rows[2][col["I2C_Vcc"]] == rows[9][col["I2C_Vcc"]]   # module value on every channel
