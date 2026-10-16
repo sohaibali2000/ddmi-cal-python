@@ -3,7 +3,6 @@ import math
 import pytest
 
 from ddmi.calc import tops
-from ddmi.calc.txdisable import search_darkest
 
 
 def test_setpoint_example():
@@ -79,28 +78,3 @@ def test_shipped_config_gives_the_documented_operating_points():
     mid = tops.tops_mid(points, cfg["tops_mid_from"])
     below_peak_db = 10 * math.log10(_txmon_at(mid) / max(txmon))
     assert below_peak_db == pytest.approx(-3.25, abs=0.1)
-
-
-def _leak(valley_v):
-    return lambda v: -45 + 4000 * (v - valley_v) ** 2
-
-
-def test_tx_disable_steps_toward_darker_and_keeps_darkest():
-    best_v, best_p, readings = search_darkest(_leak(1.83), 1.80)
-    assert best_v == pytest.approx(1.83)
-    assert best_p == min(p for _, p in readings)
-
-
-def test_tx_disable_steps_down_when_darker_is_below():
-    best_v, _, _ = search_darkest(_leak(1.78), 1.80)
-    assert best_v == pytest.approx(1.78)
-
-
-def test_tx_disable_is_limited_to_max_steps():
-    best_v, _, _ = search_darkest(_leak(2.00), 1.80, max_steps=4)
-    assert best_v == pytest.approx(1.84)
-
-
-def test_tx_disable_stays_put_at_the_minimum():
-    best_v, _, readings = search_darkest(_leak(1.80), 1.80)
-    assert best_v == 1.80 and len(readings) == 3

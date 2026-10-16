@@ -77,21 +77,22 @@ def test_record_log_and_csv_are_saved(station_cfg, product):
 
 def test_module_is_left_calibrated_and_in_normal_operation(station_cfg, product):
     station = build_station(station_cfg, sim_sn="AWS0001")
-    before = dict(station.sim_module.modes)
     run(station_cfg, product, station=station)
     sim = station.sim_module
     assert sim.tops_loop and sim.bias_loop and sim.tx_dis == 0
     assert sim.vcc_cal[0] == pytest.approx(10000 / 430, abs=0.5)     # 0.1 mV per ADC count
-    assert sim.modes == before                  # mode registers end exactly as they started
+    assert sim.modes["AWS_Test_Mode"] == 0 and sim.modes["TestMode"] == 0xCC   # V6.8 end state
     assert station.sim_bench.v_set == pytest.approx(3.3, abs=0.1)
 
 
-def test_labview_mode_cleanup_is_still_available(station_cfg, product):
+def test_v68_showpf_cleanup(station_cfg, product):
+    """800G_TRx_Test.vi V6.8 ShowPF, AWS DDMI CAL: Temp Off Func 59, TestMode 0xCC, reset,
+    DSP modes 0. AWS_Test_Mode stays at the 0 Set_Temp wrote."""
     product["showpf"] = {"mode_cleanup": "labview"}
     station = build_station(station_cfg, sim_sn="AWS0001")
     run(station_cfg, product, station=station)
-    assert station.sim_module.modes == {"AWS_Test_Mode": 1, "TestMode": 0xCC, "DSP_TestMode": 0,
-                                        "DSP_OperatingMode": 0, "TempOffFunc": 0}
+    assert station.sim_module.modes == {"AWS_Test_Mode": 0, "TestMode": 0xCC, "DSP_TestMode": 0,
+                                        "DSP_OperatingMode": 0, "TempOffFunc": 59}
 
 
 def test_registers_are_backed_up_before_the_run_and_can_be_restored(station_cfg, product):
@@ -113,11 +114,15 @@ def test_registers_are_backed_up_before_the_run_and_can_be_restored(station_cfg,
     assert sim.vcc_cal == pytest.approx(original[2]) and sim.setpoint == original[3]
 
 
-def test_loops_are_restored_to_the_values_read_before_the_run(station_cfg, product):
-    record = run(station_cfg, product)
+def test_loops_come_back_with_the_reset_after_the_scan(station_cfg, product):
+    """MPD Monitor.vi V6.8 never writes TOPPID back on: the W_Reset at the end of the scan does it."""
+    station = build_station(station_cfg, sim_sn="AWS0001")
+    record = run(station_cfg, product, station=station)
     lines = (Path(station_cfg["results_dir"]) / record["log_file"]).read_text().splitlines()
-    toppid_writes = [l for l in lines if "I2C W W_TOPPID" in l]
-    assert toppid_writes[-1].endswith("-> ff")      # back to 0xFF, as read, not to a constant 1
+    toppid_writes = [i for i, l in enumerate(lines) if "I2C W W_TOPPID" in l]
+    assert all(lines[i].endswith("-> 00") for i in toppid_writes)
+    assert any("I2C W W_Reset" in l for l in lines[toppid_writes[0]:])
+    assert station.sim_module.tops_loop and station.sim_module.bias_loop
 
 
 def test_dead_tx_lane_fails(station_cfg, product):
@@ -327,7 +332,7 @@ def test_unlocked_tops_loop_is_relocked(station_cfg, product):
     record = run(station_cfg, product, station=station)
     log = (Path(station_cfg["results_dir"]) / record["log_file"]).read_text(encoding="utf-8")
     assert record["result"] == "PASS", record["failing_items"]
-    assert "TOPS lock after the final reset: all lanes locked" in log
+    assert "TOPS lock after the final reset: relocked" in log
     assert not station.sim_module.stuck            # the module leaves the station locked
 
 
@@ -353,8 +358,86 @@ def test_lane_that_never_locks_fails_the_run(station_cfg, product, monkeypatch):
 def test_bias_setpoint_is_read_per_laser_into_the_csv(station_cfg, product, tmp_path):
     from ddmi.prod_csv import HEADER, append_run
     record = run(station_cfg, product)
-    assert values(record, "Bias_setpoint") == [300, 300, 430, 470, 300, 300, 430, 470]
+    bias = values(record, "Bias_setpoint")
+    # Adjust Power: default [280, 280, 410, 450], +20 / -30 per laser; lanes n and n+4 share one
+    assert bias[:4] == bias[4:]
+    assert all(b - d in (20, 0, -30) for b, d in zip(bias, [280, 280, 410, 450]))
     rows = [r.split(",") for r in append_run(record, tmp_path).read_text().splitlines()]
     col = HEADER.index("Bias_setpoint")
-    assert [r[col] for r in rows[3:11]] == ["300", "300", "430", "470"] * 2
+    assert [r[col] for r in rows[3:11]] == [str(b) for b in bias]
     assert rows[1][col] == "2500" and rows[2][col] == "100"
+
+
+# ---- V6.8 logic read from the VIs (2026-10-16) ----
+
+class _FakeCtx:
+    """Just enough RunContext for one step: powers per lane, writes recorded."""
+
+    def __init__(self, product, powers):
+        self.product, self._powers, self.writes, self.logs = product, powers, [], []
+        self.channels = list(range(1, 9))
+        outer = self
+
+        class _Module:
+            def write(self, name, value):
+                outer.writes.append((name, list(value) if isinstance(value, list) else value))
+
+        self.module = _Module()
+
+    def sleep(self, _s):
+        pass
+
+    def true_tx_powers(self):
+        return dict(self._powers)
+
+    def log(self, text):
+        self.logs.append(text)
+
+    detail = log
+
+
+def test_adjust_power_steps_each_laser_by_its_lane_pair_mean(product):
+    from ddmi.steps.mpd_scan import adjust_power
+    # laser 1 (CH1/5) low, laser 2 (CH2/6) in window, laser 3 (CH3/7) high, laser 4 (CH4/8) in window
+    powers = {1: 0.2, 5: 0.6, 2: 1.5, 6: 1.6, 3: 2.6, 7: 2.5, 4: 2.4, 8: 2.0}
+    ctx = _FakeCtx(product, powers)
+    adjust_power(ctx)
+    written = [w for w in ctx.writes if w[0].startswith("W_Bias_setpoint")]
+    assert [w[1] for w in written[:3]] == [[280, 280, 410, 450]] * 3        # default to RT, HT, LT
+    assert [w[1] for w in written[3:]] == [[300, 280, 380, 450]] * 3        # +20 low, -30 high
+    assert [w[0] for w in written[3:]] == ["W_Bias_setpoint", "W_Bias_setpointHT", "W_Bias_setpointLT"]
+
+
+def test_scan_disable_takes_v68_steps(station_cfg, product):
+    record = run(station_cfg, product)
+    lines = (Path(station_cfg["results_dir"]) / record["log_file"]).read_text().splitlines()
+    i = next(n for n, l in enumerate(lines) if "Scan_Disable: all lanes" in l)
+    j = next(n for n, l in enumerate(lines) if n > i and "CH1: tops_off" in l)
+    toggles = [l for l in lines[i:j] if "I2C W W_TXDis" in l and l.endswith("-> ff")]
+    # start, +step, -step, 4 toward darker, final = 8 disables (no lane above -18 dBm)
+    assert len(toggles) == 8
+    assert all(v <= -16 for v in values(record, "Tx_Disable(dBm)"))
+
+
+def test_set_temp_writes_aws_test_mode_0(station_cfg, product):
+    record = run(station_cfg, product)
+    lines = (Path(station_cfg["results_dir"]) / record["log_file"]).read_text()
+    assert "I2C W AWS_Test_Mode [EEh/0x80/1] = 0 -> 00" in lines
+    assert "= 1 -> 01" not in "".join(l for l in lines.splitlines() if "AWS_Test_Mode" in l)
+
+
+def test_wait_temp_stops_a_module_that_stays_cold(station_cfg, product):
+    station = build_station(station_cfg, sim_sn="AWS0001")
+    station.sim_module.temp_c = 20.0
+    product["wait_temp"]["timeout_s"] = 10
+    record = run(station_cfg, product, station=station)
+    assert record["result"] == "FAIL"
+    assert any(f.startswith("Wait_Temp") for f in record["failing_items"])
+
+
+def test_failed_ddmi_item_is_run_once_more(station_cfg, product):
+    product["limits"]["rx_slope"] = [0.1, 1]            # every lane fails the RX slope
+    record = run(station_cfg, product)
+    lines = (Path(station_cfg["results_dir"]) / record["log_file"]).read_text()
+    assert lines.count("RX Cal: Rxp_Slope_CH1") == 1    # one retry, not a loop
+    assert lines.count("W_DRXPCal written") == 2

@@ -11,24 +11,28 @@ MODE_REGISTERS = ("AWS_Test_Mode", "TestMode", "DSP_TestMode", "DSP_OperatingMod
 def cleanup(ctx: RunContext) -> None:
     """Put the module back into its shipping state.
 
-    showpf.mode_cleanup = "restore" (default): write back the mode registers exactly as they
-    were read before the run, reset, and check they read back the same. "labview": the V6.8
-    sequence (disable temp offset, test mode 0xCC, reset, DSP mode 0/0), whose values are
-    UNVERIFIED (build map 5.5).
+    showpf.mode_cleanup = "labview" (default): 800G_TRx_Test.vi V6.8 ShowPF for AWS DDMI CAL -
+    Disable Temp Off Func (59) and TestMode 0xCC, each written and read back up to 2 times
+    200 ms apart, then W_Reset, 10 s, and the DSP modes must read back 0.
+    "restore": write back the mode registers exactly as they were read before the run.
     """
-    if ctx.product.get("showpf", {}).get("mode_cleanup", "restore") == "restore" and ctx.meta.get("pre_run"):
+    if ctx.product.get("showpf", {}).get("mode_cleanup", "labview") == "restore" and ctx.meta.get("pre_run"):
         _restore_modes(ctx)
         return
     module, value = ctx.module, ctx.module.regmap.value
     verify = not module.dry_run      # nothing was written in a dry run, so read-backs mean nothing
 
-    module.write_value("TempOffFunc", "temp_off_func_disable")
-    if verify and module.read("TempOffFunc") != value("temp_off_func_disable"):
-        ctx.results.fail("Disable Temp Offset Fail!")
+    def write_verified(name: str, value_name: str, message: str) -> None:
+        for _attempt in range(2):
+            module.write_value(name, value_name)
+            ctx.sleep(0.2)
+            if not verify or module.read(name) == value(value_name):
+                return
+        ctx.results.fail(message)
 
-    module.write_value("TestMode", "test_mode_exit")
-    if verify and module.read("TestMode") != value("test_mode_exit"):
-        ctx.results.fail("Test Mode Set Fail!")
+    write_verified("TempOffFunc", "temp_off_func_disable", "Disable Temp Offset Fail!")
+    ctx.sleep(2.0)
+    write_verified("TestMode", "test_mode_exit", "Test Mode Set Fail!")
 
     module.write_value("W_Reset", "reset")
     ctx.sleep(ctx.product["tx_cal"]["after_reset_wait_s"])

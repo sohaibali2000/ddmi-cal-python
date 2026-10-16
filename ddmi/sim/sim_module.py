@@ -9,6 +9,7 @@ from ..hw.regmap import RegMap
 LANES = 8
 LASERS = 4
 NORMAL_BIAS_MA = 110.0
+SETPOINT_REF = 350.0
 FAULTS = ("none", "dead_tx_lane", "rx_nonlinear", "sn_mismatch", "vendor_writes_ignored", "tops_unlocked")
 
 
@@ -48,6 +49,11 @@ class SimModule:
         self.stuck = fault == "tops_unlocked"
         self.bias_loop = True
         self.bias_cmd = [NORMAL_BIAS_MA] * LASERS
+        # per-laser bias setpoint (RT, HT, LT): with the bias loop on, the laser runs at
+        # NORMAL_BIAS_MA when the RT setpoint is SETPOINT_REF
+        self.bias_setpoint = {"W_Bias_setpoint": [300, 300, 430, 470],
+                              "W_Bias_setpointHT": [300, 300, 430, 470],
+                              "W_Bias_setpointLT": [300, 300, 430, 470]}
         self.setpoint = [0] * LANES
         self.tops_off = [0.0] * LANES
         self.tops_room = [0.0] * LANES
@@ -65,7 +71,9 @@ class SimModule:
 
     # ---- physics ----
     def bias_ma(self, laser: int) -> float:
-        return NORMAL_BIAS_MA if self.bias_loop else self.bias_cmd[laser]
+        if self.bias_loop:
+            return NORMAL_BIAS_MA * self.bias_setpoint["W_Bias_setpoint"][laser] / SETPOINT_REF
+        return self.bias_cmd[laser]
 
     def laser_mw(self, lane: int) -> float:
         return max(0.0, 0.04 * (self.bias_ma(lane % LASERS) - 15))   # ~2 dBm out, TXMON peak ~1000 like the real module
@@ -156,8 +164,8 @@ class SimModule:
             return [self._rssi(i) for i in lanes]
         if name == "R_VCCADC":
             return self._vcc_adc()
-        if name == "R_Bias_setpoint":
-            return [300, 300, 430, 470]
+        if name in ("R_Bias_setpoint", "W_Bias_setpoint", "W_Bias_setpointHT", "W_Bias_setpointLT"):
+            return list(self.bias_setpoint["W_Bias_setpoint" if name == "R_Bias_setpoint" else name])
         if name == "IBias":
             return [self.bias_ma(k) for k in range(LASERS)]
         if name == "W_IBiasPID":
@@ -200,6 +208,8 @@ class SimModule:
             self.tx_dis = value
         elif name == "IBias":
             self.bias_cmd = list(value)
+        elif name in self.bias_setpoint:
+            self.bias_setpoint[name] = list(value)
         elif name == "W_IBiasPID":
             self.bias_loop = value != 0
         elif name == "W_TOPPID":

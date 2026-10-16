@@ -22,9 +22,31 @@ def reini(ctx: RunContext) -> None:
 
 
 def set_temp(ctx: RunContext) -> None:
-    """AWS + DDMI Cal: enter test mode. No temperature controller at V6.8."""
-    ctx.module.write_value("AWS_Test_Mode", "aws_test_mode_enter")
-    ctx.log("Set_Temp: W_AWS_Test_Mode = 1 (no temperature control at V6.8)")
+    """800G_TRx_Test.vi V6.8 Set_Temp, station DDMI CAL, AWS: W_AWS_Test_Mode = 0.
+    (With 1 the module ignores IBias and freezes disabled lanes - seen on hardware.)"""
+    ctx.module.write_value("AWS_Test_Mode", "aws_test_mode_ddmi")
+    ctx.log("Set_Temp: W_AWS_Test_Mode = 0")
+
+
+def wait_temp(ctx: RunContext) -> None:
+    """800G_TRx_Test.vi V6.8 Wait_Temp, RT, AWS: wait until the case temperature is within
+    30-40 C. This station has no case sensor, so the module's DDMI temperature is used."""
+    cfg = ctx.product["wait_temp"]
+    low, high = cfg["range_c"]
+    waited = 0.0
+    while True:
+        temp_c = ctx.module.read("R_DTEMP")
+        if low <= temp_c <= high:
+            ctx.log(f"Wait_Temp: DDMI temperature {temp_c:.2f} C is within {low}-{high} C"
+                    + (f" (after {waited:.0f} s)" if waited else ""))
+            return
+        if waited >= cfg["timeout_s"]:
+            raise StopTest(f"Wait_Temp: DDMI temperature {temp_c:.2f} C still outside {low}-{high} C "
+                           f"after {waited:.0f} s")
+        if waited == 0:
+            ctx.log(f"Wait_Temp: DDMI temperature {temp_c:.2f} C, waiting for {low}-{high} C")
+        ctx.sleep(cfg["poll_s"])
+        waited += cfg["poll_s"]
 
 
 def auto_adjust_vcc(ctx: RunContext, target: float) -> float:
@@ -58,6 +80,10 @@ def set_vcc(ctx: RunContext) -> None:
     current_ma = round(ctx.bench.power_supply.read_current() * 1000)
     ctx.log(f"VCC: adjusted to {nominal} V, module at {actual:.3f} V, current {current_ma} mA")
     ctx.results.add("ICC(mA)", 0, current_ma)
+    icc_min = ctx.product["vcc"].get("icc_min_ma")
+    if icc_min and current_ma < icc_min and not ctx.module.dry_run:
+        # V6.8 VCC: after adjusting, ICC must exceed the "ICC Spec.txt" value (1.8 A)
+        raise StopTest(f"ICC {current_ma} mA is below {icc_min} mA - module not drawing power")
 
 
 def read_sn(ctx: RunContext) -> None:
@@ -66,8 +92,5 @@ def read_sn(ctx: RunContext) -> None:
     pn, rev, sn = info[:16].strip(), info[16:18].strip(), info[18:34].strip()
     ctx.meta.update(pn=pn, rev=rev, module_sn=sn)
     ctx.log(f"Read SN: PN {pn}, rev {rev}, SN {sn}")
-    bias = ctx.module.read("R_Bias_setpoint")            # one per laser, shared by lanes n and n+4
-    for ch in ctx.channels:
-        ctx.results.add("Bias_setpoint", ch, bias[(ch - 1) % len(bias)])
     if ctx.scanned_sn and sn != ctx.scanned_sn:
         raise StopTest("Inconsistent internal and external SN")

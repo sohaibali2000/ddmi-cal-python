@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import threading
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -121,6 +122,7 @@ def run_slot(*, station_cfg: dict, product: dict, slot: int = 1, scanned_sn: str
             except Exception as exc:
                 reason = f"ERROR: {type(exc).__name__}: {exc}"
                 say(reason)
+                ctx.detail(traceback.format_exc().rstrip())
 
             if ctx.meta.get("module_sn"):
                 record["sn"] = record["sn"] or ctx.meta["module_sn"]

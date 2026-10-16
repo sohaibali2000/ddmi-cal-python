@@ -37,14 +37,19 @@ def unlocked_lanes(ctx: RunContext) -> dict[int, str]:
 
 
 def relock(ctx: RunContext, where: str, final: bool = False) -> None:
-    """Loop off, Vtops back to each lane's Tops_Mid, loop on; then check every lane is
-    locked. One more try if not. With final=True a lane still unlocked fails the run."""
+    """Check every lane's TOPS loop is locked (V6.8 itself does not check this). Only if one
+    is not: loop off, Vtops back to each lane's Tops_Mid, loop on, check again (up to
+    `attempts` times). With final=True a lane still unlocked fails the run."""
     module, cfg = ctx.module, ctx.product["tops_lock"]
     if module.dry_run:
         return
+    bad = unlocked_lanes(ctx)
+    if not bad:
+        ctx.log(f"TOPS lock {where}: all lanes locked")
+        return
+    ctx.log(f"TOPS lock {where}: not locked - " + "; ".join(f"CH{ch} {text}" for ch, text in bad.items()))
     lanes = ctx.meta.get("mpd_scan", {}).get("lanes", {})
     toppid = ctx.pre_run("W_TOPPID", "toppid_on")
-    bad: dict[int, str] = {}
     for attempt in range(1, cfg["attempts"] + 1):
         current = module.read("Vtops")
         mids = [(lanes.get(ch) or {}).get("mid_v") or current[ch - 1] for ch in ctx.channels]
@@ -55,9 +60,9 @@ def relock(ctx: RunContext, where: str, final: bool = False) -> None:
         ctx.sleep(cfg["settle_s"])
         bad = unlocked_lanes(ctx)
         if not bad:
-            ctx.log(f"TOPS lock {where}: all lanes locked" + (f" (attempt {attempt})" if attempt > 1 else ""))
+            ctx.log(f"TOPS lock {where}: relocked (attempt {attempt})")
             return
-        ctx.log(f"TOPS lock {where}, attempt {attempt}: not locked - "
+        ctx.log(f"TOPS lock {where}, relock attempt {attempt}: not locked - "
                 + "; ".join(f"CH{ch} {text}" for ch, text in bad.items()))
     if final:
         for ch, text in bad.items():

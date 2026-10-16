@@ -1,8 +1,12 @@
-"""Test sequence of 800G_TRx_Test.vi for V6.8 DDMI Cal (build map Section 6).
+"""Test sequence of 800G_TRx_Test.vi V6.8, station DDMI CAL, AWS 2xFR4.
 
-Start button: Reini -> Set_Temp -> Read SN -> VCC -> StartTest
-StartTest:    Scan_MPD -> DDMI_CAL -> ShowPF
-Move_in / Read_Spec / Move_out belong to the MES wrapper (ddmi/mes/wrapper.py).
+Read from the V6.8 VIs:
+  states:    Reini -> Set_Temp -> VCC -> Read_Spec -> Wait_Temp -> StartTest
+  StartTest: Scan_MPD -> DDMI_CAL -> ShowPF -> Move_out -> Stop
+  Scan_MPD:  (Scan Vtops -> Adjust Power -> Scan_Disable), up to 2 passes
+  DDMI_CAL:  DDMI_Adjust_TX -> DDMI_RXP -> DDMI_VCC -> DDMI_Temp, each re-run once when it
+             fails its slope / error check
+Read SN runs with Set_Temp here; Read_Spec / Move_in / Move_out belong to the MES wrapper.
 """
 from __future__ import annotations
 
@@ -13,13 +17,17 @@ from .steps import mpd_scan, rx_cal, showpf, startup, temp, tx_cal, vcc_cal
 # Stages shown as lights in the UI, in run order.
 STAGES = ["Startup", "Scan MPD", "TX Cal", "RX Cal", "VCC Cal", "Final"]
 
-# DDMI_CAL parts: name -> (stage, functions)
+# DDMI_CAL parts: name -> (stage, functions, items whose failure re-runs the part once)
 DDMI_CAL = {
-    "tx": ("TX Cal", (tx_cal.tx_cal, tx_cal.tx_check)),
-    "rx": ("RX Cal", (rx_cal.rx_cal, rx_cal.rx_check)),
-    "vcc": ("VCC Cal", (vcc_cal.vcc_cal, vcc_cal.vcc_check)),
-    "temp": ("VCC Cal", (temp.read_temp,)),
+    "tx": ("TX Cal", (tx_cal.tx_cal, tx_cal.tx_check), ("Txp_Slope", "dTxP(dB)")),
+    "rx": ("RX Cal", (rx_cal.rx_cal, rx_cal.rx_check), ("Rxp_Slope", "dRxP(dB)")),
+    "vcc": ("VCC Cal", (vcc_cal.vcc_cal, vcc_cal.vcc_check), ("Vcc_Slope", "dVcc(V)")),
+    "temp": ("VCC Cal", (temp.read_temp,), ()),
 }
+
+
+def _failed(ctx: RunContext, items) -> list[str]:
+    return [f for f in ctx.results.failing_items() if any(f == i or f.startswith(i + "_CH") for i in items)]
 
 
 def _stage(ctx: RunContext, name: str, functions) -> None:
@@ -71,11 +79,22 @@ def run(ctx: RunContext) -> None:
     """Run the whole sequence. Raises Aborted or StopTest; results accumulate in ctx.results."""
     try:
         take_backup(ctx)
-        _stage(ctx, "Startup", (startup.reini, startup.set_temp, startup.read_sn, startup.set_vcc))
-        _stage(ctx, "Scan MPD", (mpd_scan.scan_mpd, mpd_scan.scan_disable))
+        _stage(ctx, "Startup", (startup.reini, startup.set_temp, startup.read_sn, startup.set_vcc,
+                                startup.wait_temp))
+        passes = ctx.product["flow"].get("scan_mpd_passes", 2)
+        for attempt in range(1, passes + 1):
+            _stage(ctx, "Scan MPD", (mpd_scan.scan_mpd, mpd_scan.adjust_power, mpd_scan.scan_disable))
+            bright = _failed(ctx, ("Tx_Disable(dBm)",))
+            if not bright or attempt == passes:
+                break
+            ctx.log(f"Scan_MPD pass {attempt}: {', '.join(bright)} failed - scanning again")
         for part in ctx.product["flow"]["ddmi_cal_order"]:
-            stage, functions = DDMI_CAL[part]
+            stage, functions, retry_items = DDMI_CAL[part]
             _stage(ctx, stage, functions)
+            failed = _failed(ctx, retry_items)
+            if failed:
+                ctx.log(f"{stage}: {', '.join(failed)} failed - running it once more")
+                _stage(ctx, stage, functions)
         _stage(ctx, "Final", (showpf.cleanup,))
     except BaseException:
         safe_state(ctx)

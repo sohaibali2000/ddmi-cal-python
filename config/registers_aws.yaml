@@ -39,6 +39,10 @@ registers:
   # Per-laser bias setpoint at room temperature (lanes 1/5, 2/6, 3/7, 4/8 share a laser).
   # Address from the V12 TEC change list ("Read_Bias_Setpoint_RT_0xE9_D2"); read only here.
   R_Bias_setpoint: {page: 0xE9, byte: 0xD2, len: 8, fmt: u16_array, conf: UNVERIFIED}
+  # IIC.vi V6.8 (W_Bias_setpoint / HT / LT, AWS): E9h 0xD2 / 0xB0 / 0xB8, 4 x u16, one per laser.
+  W_Bias_setpoint:   {page: 0xE9, byte: 0xD2, len: 8, fmt: u16_array, conf: UNVERIFIED}
+  W_Bias_setpointHT: {page: 0xE9, byte: 0xB0, len: 8, fmt: u16_array, conf: UNVERIFIED}
+  W_Bias_setpointLT: {page: 0xE9, byte: 0xB8, len: 8, fmt: u16_array, conf: UNVERIFIED}
   IBias:          {page: 0xE9, byte: 0xC0, len: 8,  fmt: u16_scaled_array, scale: 100, conf: UNVERIFIED}  # 4 lasers, mA; scaling: constant 100 seen
   W_IBiasPID:     {page: 0xE9, byte: 0xD0, len: 1,  fmt: u8, conf: UNVERIFIED}   # 0 = loop off; restore 15 (or 3)
   Vtops:          {page: 0xE9, byte: 0xA0, len: 16, fmt: volt_array, full_scale: 5.0, conf: CODE}
@@ -65,7 +69,7 @@ registers:
   TestMode:           {page: 0xEE, byte: 0x83, len: 1, fmt: u8, conf: UNVERIFIED}   # 0xCC to exit
   DSP_TestMode:       {page: 0xCF, byte: 0x81, len: 1, fmt: u8, conf: UNVERIFIED}   # W_Debug_AWS = 1, W_Nomal_AWS = 0
   DSP_OperatingMode:  {page: 0xCF, byte: 0x86, len: 1, fmt: u8, conf: UNVERIFIED}   # W_Daul_AWS = 5, W_Mission_AWS = 0
-  TempOffFunc:        {page: 0xFE, byte: 0x98, len: 1, fmt: u8, conf: UNVERIFIED}   # 0x98 or 0x95; disable value unknown
+  TempOffFunc:        {page: 0xFE, byte: 0x95, len: 1, fmt: u8, conf: UNVERIFIED}   # IIC.vi V6.8 "Disable/Read Temp Off Func": FEh 0x95, disable = 59
 
 # Values the flow writes that are themselves unconfirmed.
 values:
@@ -79,9 +83,12 @@ values:
   ibiaspid_off: 0
   ibiaspid_restore: 15
   aws_test_mode_enter: 1
+  aws_test_mode_ddmi: 0          # 800G_TRx_Test.vi V6.8 Set_Temp, DDMI CAL + AWS: W_AWS_Test_Mode = 0
+  txdis_all_on: 0x00             # IIC.vi W_TXDis "Channel 8"
+  txdis_all_off: 0xFF            # IIC.vi W_TXDis "Channel 9"
   test_mode_exit: 0xCC
   dsp_debug: 1
   dsp_normal: 0
   dsp_dual: 5
   dsp_mission: 0
-  temp_off_func_disable: 0
+  temp_off_func_disable: 59      # 800G_TRx_Test.vi V6.8 ShowPF (AWS, DDMI CAL)

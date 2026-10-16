@@ -5,7 +5,8 @@ channels: 8
 lasers: 4                          # lane n and n+4 share laser n
 
 flow:
-  # VERIFY: order of the DDMI_Cal.vi frames (frame numbers are temp 0, vcc 1, tx 2, rx 3).
+  scan_mpd_passes: 2                # V6.8 Scan_MPD state: scan + adjust power + scan disable, up to 2 passes
+  # 800G_TRx_Test.vi V6.8 DDMI_CAL: DDMI_Adjust_TX, DDMI_RXP, DDMI_VCC, DDMI_Temp.
   ddmi_cal_order: [tx, rx, vcc, temp]
 
 mpd_scan:
@@ -17,6 +18,12 @@ mpd_scan:
   start_settle_s: 1.0              # at the first voltage, before the sweep
   step_settle_s: 0.3               # after every Vtops step (VERIFY: "Delay Time (s)" in MPD Monitor.vi)
   op_point_settle_s: 1.0           # after moving to each operating point, before TXMON/MPD_OUT are read
+  # MPD Monitor.vi V6.8 constants
+  start_vtops: 1.0                 # first frame: every lane to 1.0 V (loops off, tops_off 0)
+  pre_scan_wait_s: 1.0
+  write_clamp_v: [0.2, 3.0]        # Vtops / tops_off coerced before the final write
+  end_wait_s: 2.0                  # before W_Reset
+  after_reset_wait_s: 10.0
   # The fraction array as it appears in the LabVIEW code. Read as 1 - x of the peak it
   # gives the operating points at 35 / 44 / 50 / 56 % of peak (4.5 / 3.5 / 3.0 / 2.5 dB
   # below it). VERIFY against Peak Search.vi; the other modes are x_of_peak, x_of_span,
@@ -37,20 +44,30 @@ tops_lock:
   min_mpd_out: 100                 # an unlocked lane at the fringe top read MPD_OUT 27
   attempts: 2
 
+adjust_power:
+  # Item_Test.vi V6.8 "Adjust Power", AWS LC-2*FR4 (one step, per laser = lanes n and n+4)
+  default_setpoint: [280, 280, 410, 450]
+  window_dbm: [0.7, 2.3]           # mean of the lane pair, true power
+  step_up: 20                      # below the window
+  step_down: 30                    # above the window
+  settle_s: 2.0
+
 tx_disable:
-  # Measured on hardware 2026-10-15: after W_TXDis (and after every tops_off write) the lane
-  # first flashes to about +4 dBm, then drifts down for ~10 s; at the scan's valley it
-  # settles near -25 dBm. So: start at the valley, wait for the settled value, and tune
-  # only a lane that fails, in steps big enough to matter, each one settled.
+  # Item_Test.vi V6.8 "Scan_Disable": all lanes disabled together, step 0.01 V, one step
+  # each side, then 4 toward darker; lanes still above -18 dBm get 5 more.
+  step_v: 0.01
+  steps: 4
+  recheck_dbm: -18
+  extra_steps: 5
+  enable_wait_s: 1.0
+  # V6.8 waits only 0-0.1 s per step, but its I2C is far slower than this station's. Our
+  # module needs seconds to settle after a disable, so each step is read once steady.
   poll_s: 0.5
-  min_s: 3.0                       # never judge before this
-  max_s: 30.0                      # CH8 was still ramping (-18 dBm, ~1.5 dB/s) after 12 s
-  stable_readings: 4               # the last 4 readings within tol_db = settled
-  tol_db: 0.6
-  dark_margin_db: 4.0              # done early once this far below the upper limit
-  tune_step_v: 0.05
-  tune_max_steps: 2
-  extra_steps_if_above_dbm: null   # V12: -18 dBm -> 5 more steps
+  min_s: 1.0
+  max_s: 15.0
+  stable_readings: 3
+  tol_db: 0.5
+  dark_enough_dbm: -22             # a lane this dark counts as settled
   limit_dbm: [-60, -16]
 
 tx_power_meter:
@@ -70,9 +87,10 @@ tx_loss:
   timeout_s: 1800
 
 showpf:
-  # restore: write back the mode registers as read before the run (safe for a module that
-  # was already in its shipping state). labview: the V6.8 sequence with unconfirmed values.
-  mode_cleanup: restore
+  # labview: 800G_TRx_Test.vi V6.8 ShowPF for AWS DDMI CAL - Temp Off Func 59 (FEh 0x95),
+  # TestMode 0xCC, W_Reset, 10 s, DSP modes read back 0 (values read from the V6.8 VIs).
+  # restore: write back the mode registers exactly as read before the run.
+  mode_cleanup: labview
 
 tx_cal:
   bias_ma: [60, 180]               # other 2xFR4: [70, 130]
@@ -86,7 +104,16 @@ rx_cal:
   wavelengths_nm: [1270, 1290, 1310, 1330, 1270, 1290, 1310, 1330]
   settle_s: 1.0                    # VERIFY (computed delay in code)
 
+wait_temp:
+  # V6.8 Wait_Temp (RT, AWS) waits for the CASE temperature (thermostream sensor) to be 30-40 C.
+  # This station has no case sensor; the module's DDMI temperature reads a few degrees above
+  # the case, so the wait uses the DDMI_Temp spec instead: a cold module is warmed up first.
+  range_c: [30, 60]
+  poll_s: 2.0
+  timeout_s: 600
+
 vcc:
+  icc_min_ma: 1800                 # V6.8 "ICC Spec.txt" (1.8 A)
   nominal_v: 3.3
   cal_points_v: [3.13, 3.47]
   settle_s: 2.0
