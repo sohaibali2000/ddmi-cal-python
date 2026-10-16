@@ -4,6 +4,7 @@ from __future__ import annotations
 from ..calc.fit import two_point_fit
 from ..calc.units import dbm_to_lin, lin_to_dbm
 from ..runctx import RunContext
+from .tops_lock import relock
 
 
 def tx_cal(ctx: RunContext) -> None:
@@ -69,6 +70,7 @@ def tx_cal(ctx: RunContext) -> None:
         module.write_value("W_Reset", "reset")
         ctx.log(f"bias restored, W_Reset, wait {cfg['after_reset_wait_s']} s")
     ctx.sleep(cfg["after_reset_wait_s"])
+    relock(ctx, "after the TX cal reset")
 
 
 def tx_check(ctx: RunContext) -> None:

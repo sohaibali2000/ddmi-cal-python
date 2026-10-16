@@ -6,6 +6,7 @@ import copy
 from ..calc import tops
 from ..calc.txdisable import search_darkest
 from ..runctx import RunContext
+from .tops_lock import relock
 
 
 def scan_mpd(ctx: RunContext) -> None:
@@ -96,6 +97,7 @@ def scan_mpd(ctx: RunContext) -> None:
     module.write("W_TOPPID", toppid)
     ctx.log(f"tops_setpoint written: {setpoints}; tops_off = valley voltage; TOPS loop on (TOPPID 0x{toppid:02X})")
     ctx.on_data("mpd_result", {"lanes": copy.deepcopy(scan["lanes"])})
+    relock(ctx, "after Scan_MPD")
 
 
 def settled_power(ctx: RunContext, ch: int, cfg: dict) -> float:
@@ -166,3 +168,4 @@ def scan_disable(ctx: RunContext) -> None:
         module.write("W_TXDis", 0x00)
         if test_mode:
             module.write("AWS_Test_Mode", test_mode)
+    relock(ctx, "after Scan_Disable")

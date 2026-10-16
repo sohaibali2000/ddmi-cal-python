@@ -319,3 +319,32 @@ def test_production_csv_layout(station_cfg, product, tmp_path):
     assert ch1[col["RxP1"]] == "-6"
     assert ch1[col["TXP_MPDOut_3dB"]] != ""
     assert rows[2][col["I2C_Vcc"]] == rows[9][col["I2C_Vcc"]]   # module value on every channel
+
+
+def test_unlocked_tops_loop_is_relocked(station_cfg, product):
+    """2026-10-15: a lane's loop sat at the fringe top after a reset until Vtops was rewritten."""
+    station = build_station(station_cfg, sim_sn="AWS0001", fault="tops_unlocked")
+    record = run(station_cfg, product, station=station)
+    log = (Path(station_cfg["results_dir"]) / record["log_file"]).read_text(encoding="utf-8")
+    assert record["result"] == "PASS", record["failing_items"]
+    assert "TOPS lock after the final reset: all lanes locked" in log
+    assert not station.sim_module.stuck            # the module leaves the station locked
+
+
+def test_without_the_lock_check_a_stuck_lane_would_go_unnoticed(station_cfg, product, monkeypatch):
+    """Why the final check exists: the TX check compares DDMI with the meter, and a lane
+    stuck at full power reads high on both, so nothing else flags it."""
+    from ddmi.steps import mpd_scan, showpf, tx_cal
+    for mod in (mpd_scan, showpf, tx_cal):
+        monkeypatch.setattr(mod, "relock", lambda *a, **k: None)
+    station = build_station(station_cfg, sim_sn="AWS0001", fault="tops_unlocked")
+    run(station_cfg, product, station=station)
+    assert station.sim_module.stuck
+
+
+def test_lane_that_never_locks_fails_the_run(station_cfg, product, monkeypatch):
+    from ddmi.steps import tops_lock
+    monkeypatch.setattr(tops_lock, "unlocked_lanes", lambda ctx: {1: "ratio 29000 vs setpoint 587"})
+    record = run(station_cfg, product)
+    assert record["result"] == "FAIL"
+    assert any(f.startswith("TOPS loop not locked CH1") for f in record["failing_items"])

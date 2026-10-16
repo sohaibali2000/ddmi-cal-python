@@ -9,7 +9,7 @@ from ..hw.regmap import RegMap
 LANES = 8
 LASERS = 4
 NORMAL_BIAS_MA = 110.0
-FAULTS = ("none", "dead_tx_lane", "rx_nonlinear", "sn_mismatch", "vendor_writes_ignored")
+FAULTS = ("none", "dead_tx_lane", "rx_nonlinear", "sn_mismatch", "vendor_writes_ignored", "tops_unlocked")
 
 
 def _dbm(mw: float) -> float:
@@ -43,6 +43,9 @@ class SimModule:
         # state the firmware keeps
         self.v_cmd = [1.0] * LANES
         self.tops_loop = True
+        # tops_unlocked: after a reset the fault lane's loop sits at the top of its fringe
+        # until Vtops is written with the loop off (seen on hardware 2026-10-15).
+        self.stuck = fault == "tops_unlocked"
         self.bias_loop = True
         self.bias_cmd = [NORMAL_BIAS_MA] * LASERS
         self.setpoint = [0] * LANES
@@ -96,6 +99,8 @@ class SimModule:
     def lane_v(self, lane: int) -> float:
         if self.tx_dis >> lane & 1:
             return self.tops_off[lane]
+        if self.stuck and self.tops_loop and lane == self.fault_lane - 1:
+            return max((i / 100 for i in range(301)), key=lambda v: self.transmission(lane, v))
         if self.tops_loop and self.setpoint[lane] > 0:
             return self._locked_v(lane)
         return self.v_cmd[lane]
@@ -188,6 +193,7 @@ class SimModule:
             if value & 0x08:
                 self.tops_loop = self.bias_loop = True
                 self.resets += 1
+                self.stuck = self.fault == "tops_unlocked"
         elif name == "W_TXDis":
             self.tx_dis = value
         elif name == "IBias":
@@ -198,6 +204,8 @@ class SimModule:
             self.tops_loop = value != 0
         elif name == "Vtops":
             self.v_cmd = list(value)
+            if not self.tops_loop:
+                self.stuck = False
         elif name == "tops_setpoint":
             self.setpoint = list(value)
         elif name == "tops_off":

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from ..runctx import RunContext
+from .tops_lock import relock
 
 
 MODE_REGISTERS = ("AWS_Test_Mode", "TestMode", "DSP_TestMode", "DSP_OperatingMode", "TempOffFunc")
@@ -36,6 +37,7 @@ def cleanup(ctx: RunContext) -> None:
     if verify and modes != (value("dsp_mission"), value("dsp_normal")):
         ctx.results.fail("DSP Mode Reset Fail!")
     ctx.log("ShowPF: temp offset function disabled, test mode exited, module reset")
+    relock(ctx, "after the final reset", final=True)
 
 
 def _restore_modes(ctx: RunContext) -> None:
@@ -50,3 +52,4 @@ def _restore_modes(ctx: RunContext) -> None:
         if wrong:
             ctx.results.fail("Mode restore failed: " + ", ".join(wrong))
     ctx.log("ShowPF: mode registers restored to their pre-run values, module reset")
+    relock(ctx, "after the final reset", final=True)

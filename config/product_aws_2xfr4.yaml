@@ -29,6 +29,14 @@ mpd_scan:
   setpoint_scale: 1000             # tops_setpoint = round(TXMON / MPD_OUT * 1000)
   scan_attempts: 1                 # V12: 2 attempts, up to 2 scans each
 
+tops_lock:
+  # After the loop is switched on and after every reset: loop off, Vtops = Tops_Mid, loop on,
+  # then each lane's TXMON/MPD_OUT*1000 must be within ratio_tolerance of its tops_setpoint.
+  settle_s: 1.5
+  ratio_tolerance: 0.3
+  min_mpd_out: 100                 # an unlocked lane at the fringe top read MPD_OUT 27
+  attempts: 2
+
 tx_disable:
   # Measured on hardware 2026-10-15: after W_TXDis (and after every tops_off write) the lane
   # first flashes to about +4 dBm, then drifts down for ~10 s; at the scan's valley it
