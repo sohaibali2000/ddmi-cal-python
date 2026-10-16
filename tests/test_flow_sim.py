@@ -38,7 +38,7 @@ def test_every_documented_limit_is_applied(station_cfg, product):
         "Rxp_Slope": [5, 30], "Tx_Disable(dBm)": [-60, -16], "dTxP(dB)": [-0.5, 0.5],
         "dRxP(dB)": [-0.5, 0.5], "dVcc(V)": [-0.033, 0.033], "DDMI_Temp(C)": [30, 60],
         # from the production CSV's MAX/MIN rows
-        "Tops_Setpoint": [100, 2500], "Tops_Mid(V)": [0, 3], "Tops_off(V)": [0, 3],
+        "Tops_Setpoint": [100, 2500], "Bias_setpoint": [100, 2500], "Tops_Mid(V)": [0, 3], "Tops_off(V)": [0, 3],
         "TxP(dBm)": [-3.3, 10000], "DDMI_TxP(dBm)": [-3.8, 10000],
         "Txp_Offset": [-10000, 10000], "Txp_Slope": [5, 150], "Rxp_Offset": [-10000, 10000],
         "Real_Vcc(V)": [3.234, 3.366], "Vcc_Offset": [-10000, 10000], "Vcc_Slope": [15, 30],
@@ -348,3 +348,13 @@ def test_lane_that_never_locks_fails_the_run(station_cfg, product, monkeypatch):
     record = run(station_cfg, product)
     assert record["result"] == "FAIL"
     assert any(f.startswith("TOPS loop not locked CH1") for f in record["failing_items"])
+
+
+def test_bias_setpoint_is_read_per_laser_into_the_csv(station_cfg, product, tmp_path):
+    from ddmi.prod_csv import HEADER, append_run
+    record = run(station_cfg, product)
+    assert values(record, "Bias_setpoint") == [300, 300, 430, 470, 300, 300, 430, 470]
+    rows = [r.split(",") for r in append_run(record, tmp_path).read_text().splitlines()]
+    col = HEADER.index("Bias_setpoint")
+    assert [r[col] for r in rows[3:11]] == ["300", "300", "430", "470"] * 2
+    assert rows[1][col] == "2500" and rows[2][col] == "100"

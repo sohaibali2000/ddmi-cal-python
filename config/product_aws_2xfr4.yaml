@@ -95,6 +95,7 @@ vcc:
 limits:                            # replaced by the MES spec when online
   # From the MAX/MIN rows of the production station's CSV (2026-10 DDMI2XFR4 files).
   tops_setpoint: [100, 2500]
+  bias_setpoint: [100, 2500]
   tops_mid_v: [0, 3]
   tops_off_v: [0, 3]
   txp_dbm: [-3.3, 10000]

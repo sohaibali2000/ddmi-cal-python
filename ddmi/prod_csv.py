@@ -29,7 +29,7 @@ COLUMNS = {
     "dTxP": ("dTxP(dB)", 2, None),
     "Txp_Offset": ("Txp_Offset", 2, None),
     "Txp_Slope": ("Txp_Slope", 2, None),
-    "Bias_setpoint": (None, 0, ""),              # register not mapped yet: value left empty
+    "Bias_setpoint": ("Bias_setpoint", 0, None),
     "Tops_setpoint": ("Tops_Setpoint", 0, None),
     "RxP1": (None, 0, ""),
     "DD_RxP1": ("DD_RxP@", 3, ""),               # prefix: the item name carries the check power

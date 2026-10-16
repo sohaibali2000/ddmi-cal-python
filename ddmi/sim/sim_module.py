@@ -156,6 +156,8 @@ class SimModule:
             return [self._rssi(i) for i in lanes]
         if name == "R_VCCADC":
             return self._vcc_adc()
+        if name == "R_Bias_setpoint":
+            return [300, 300, 430, 470]
         if name == "IBias":
             return [self.bias_ma(k) for k in range(LASERS)]
         if name == "W_IBiasPID":

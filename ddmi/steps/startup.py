@@ -66,5 +66,8 @@ def read_sn(ctx: RunContext) -> None:
     pn, rev, sn = info[:16].strip(), info[16:18].strip(), info[18:34].strip()
     ctx.meta.update(pn=pn, rev=rev, module_sn=sn)
     ctx.log(f"Read SN: PN {pn}, rev {rev}, SN {sn}")
+    bias = ctx.module.read("R_Bias_setpoint")            # one per laser, shared by lanes n and n+4
+    for ch in ctx.channels:
+        ctx.results.add("Bias_setpoint", ch, bias[(ch - 1) % len(bias)])
     if ctx.scanned_sn and sn != ctx.scanned_sn:
         raise StopTest("Inconsistent internal and external SN")

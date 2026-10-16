@@ -10,6 +10,7 @@ from typing import Callable
 # Result item -> key in the product config `limits` (and in the MES spec).
 LIMIT_KEYS = {
     "Tops_Setpoint": "tops_setpoint",
+    "Bias_setpoint": "bias_setpoint",
     "Tops_Mid(V)": "tops_mid_v",
     "Tops_off(V)": "tops_off_v",
     "TxP(dBm)": "txp_dbm",

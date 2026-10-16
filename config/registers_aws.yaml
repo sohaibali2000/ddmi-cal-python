@@ -36,6 +36,9 @@ registers:
   R_VCCADC:       {page: 0xF3, byte: 0x84, len: 2,  fmt: u16le, conf: HW}
 
   # --- bias and TOPS ---
+  # Per-laser bias setpoint at room temperature (lanes 1/5, 2/6, 3/7, 4/8 share a laser).
+  # Address from the V12 TEC change list ("Read_Bias_Setpoint_RT_0xE9_D2"); read only here.
+  R_Bias_setpoint: {page: 0xE9, byte: 0xD2, len: 8, fmt: u16_array, conf: UNVERIFIED}
   IBias:          {page: 0xE9, byte: 0xC0, len: 8,  fmt: u16_scaled_array, scale: 100, conf: UNVERIFIED}  # 4 lasers, mA; scaling: constant 100 seen
   W_IBiasPID:     {page: 0xE9, byte: 0xD0, len: 1,  fmt: u8, conf: UNVERIFIED}   # 0 = loop off; restore 15 (or 3)
   Vtops:          {page: 0xE9, byte: 0xA0, len: 16, fmt: volt_array, full_scale: 5.0, conf: CODE}
