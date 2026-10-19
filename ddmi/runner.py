@@ -80,8 +80,13 @@ def run_slot(*, station_cfg: dict, product: dict, slot: int = 1, scanned_sn: str
 
         tx_loss_file = stationfiles.tx_loss_path(slot, _path(station_cfg["tx_loss_file"]))
         tx_loss = stationfiles.read_tx_loss(tx_loss_file)
+        if tx_loss is None and not record["dry_run"]:
+            # Without it every true TX power would be wrong by the path loss
+            record["failing_items"] = [f"Tx Loss missing in {tx_loss_file.name} - run the Tx Loss calibration"]
+            say(f"Not started: {record['failing_items'][0]}")
+            return record
         if tx_loss is None:
-            say(f"WARNING: no Tx Loss in {tx_loss_file.name} - using 0 dB. Run Tx Loss Calibration.")
+            say(f"WARNING: no Tx Loss in {tx_loss_file.name}; dry run continues with 0 dB")
             tx_loss = [0.0] * product["channels"]
         elif max(tx_loss) > product["limits"]["tx_loss_warn_db"]:
             say(f"WARNING: Tx Loss above {product['limits']['tx_loss_warn_db']} dB: {tx_loss}")

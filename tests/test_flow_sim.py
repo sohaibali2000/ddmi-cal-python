@@ -474,3 +474,28 @@ def test_txp_mpdout_is_the_monitor_ratio_rising_toward_the_peak(station_cfg, pro
         assert r["0.65"] < r["0.44"]
         assert r["0.65"] <= r["0.56"] + 5 and r["0.56"] <= r["0.5"] + 5 and r["0.5"] <= r["0.44"] + 5
         assert min(r["0.56"], r["0.5"]) - 5 <= lane["setpoint"] <= max(r["0.56"], r["0.5"]) + 5
+
+
+def test_adjust_power_runs_on_the_first_scan_pass_only(station_cfg, product):
+    product["limits"]["tx_disable_dbm"] = [-60, -99]     # every lane fails -> second pass
+    record = run(station_cfg, product)
+    log = (Path(station_cfg["results_dir"]) / record["log_file"]).read_text()
+    assert log.count("Scan_MPD: TOPS and bias loops off") == 2
+    assert log.count("Adjust Power:") == 1
+
+
+def test_missing_tx_loss_stops_before_check_in(station_cfg, product):
+    Path(station_cfg["tx_loss_file"]).unlink()
+    record = run(station_cfg, product)
+    assert record["result"] != "PASS"
+    assert any("Tx Loss missing" in f for f in record["failing_items"])
+    assert "results" not in record or not record["results"]
+
+
+def test_vtops_not_above_tops_off_rescans_then_fails(station_cfg, product, monkeypatch):
+    from ddmi.steps import mpd_scan
+    calls = []
+    monkeypatch.setattr(mpd_scan, "_vtops_not_above_off", lambda ctx: calls.append(1) or [3])
+    record = run(station_cfg, product)
+    assert len(calls) == 2                                # scanned twice (V6.8 loop of 2)
+    assert "Scan_MPD CH3: Vtops not above tops_off after the scan" in record["failing_items"]

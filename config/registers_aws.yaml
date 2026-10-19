@@ -70,7 +70,9 @@ registers:
   TestMode:           {page: 0xEE, byte: 0x83, len: 1, fmt: u8, conf: UNVERIFIED}   # 0xCC to exit
   DSP_TestMode:       {page: 0xCF, byte: 0x81, len: 1, fmt: u8, conf: UNVERIFIED}   # W_Debug_AWS = 1, W_Nomal_AWS = 0
   DSP_OperatingMode:  {page: 0xCF, byte: 0x86, len: 1, fmt: u8, conf: UNVERIFIED}   # W_Daul_AWS = 5, W_Mission_AWS = 0
-  TempOffFunc:        {page: 0xFE, byte: 0x95, len: 1, fmt: u8, conf: UNVERIFIED}   # IIC.vi V6.8 "Disable/Read Temp Off Func": FEh 0x95, disable = 59
+  # IIC.vi V6.8 "Disable/Read Temp Off Func", value 59: FEh 0x98 for DUT type "Oracle(AWS DUT)"
+  # (material 400454000050 only), FEh 0x95 for every other type - incl. AWS 2xFR4 (400454000030).
+  TempOffFunc:        {page: 0xFE, byte: 0x95, len: 1, fmt: u8, conf: UNVERIFIED}
 
 # Values the flow writes that are themselves unconfirmed.
 values:

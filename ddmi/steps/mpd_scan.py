@@ -19,15 +19,37 @@ def _has_rising_edge(curve: list) -> bool:
 def scan_mpd(ctx: RunContext) -> None:
     cfg = ctx.product["mpd_scan"]
     attempts = cfg.get("scan_attempts", 1)
+    # 800G_TRx_Test.vi V6.8 Scan_MPD: the MPD Monitor call sits in a loop of 2 that repeats
+    # when the scan does not pass: no rising edge, or Vtops not above tops_off after the reset
     for attempt in range(1, attempts + 1):
         curves, volts = _sweep(ctx, cfg)
         missing = [lane + 1 for lane, c in enumerate(curves) if not _has_rising_edge(c)]
-        if not missing or attempt == attempts:
-            break
-        # 800G_TRx_Test.vi V6.8 Scan_MPD: the MPD Monitor call sits in a loop of 2 that
-        # repeats when the scan does not pass
-        ctx.log(f"Scan_MPD: CH{missing} have no rising edge - scanning again")
-    _analyse_and_write(ctx, cfg, curves, volts)
+        if missing and attempt < attempts:
+            ctx.log(f"Scan_MPD: CH{missing} have no rising edge - scanning again")
+            continue
+        _analyse_and_write(ctx, cfg, curves, volts)
+        wrong = _vtops_not_above_off(ctx)
+        if not wrong:
+            return
+        if attempt < attempts:
+            ctx.log(f"Scan_MPD: CH{wrong} read back Vtops <= tops_off - scanning again")
+            continue
+        for ch in wrong:
+            ctx.results.fail(f"Scan_MPD CH{ch}: Vtops not above tops_off after the scan")
+
+
+def _vtops_not_above_off(ctx: RunContext) -> list[int]:
+    """Frame 5 read-back: on the rising edge the operating point (Vtops) must be above the
+    valley (tops_off). Lanes without a scan result keep their values and are not judged."""
+    if ctx.module.dry_run:
+        return []
+    vtops, off = ctx.module.read("Vtops"), ctx.module.read("tops_off")
+    lanes = ctx.meta.get("mpd_scan", {}).get("lanes", {})
+    wrong = [ch for ch in ctx.channels if ch in lanes and lanes[ch].get("mid_v") is not None
+             and vtops[ch - 1] <= off[ch - 1]]
+    ctx.detail(f"read back after the scan: Vtops {[round(v, 3) for v in vtops]}, "
+               f"tops_off {[round(v, 3) for v in off]}")
+    return wrong
 
 
 def _sweep(ctx: RunContext, cfg: dict):

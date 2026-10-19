@@ -47,16 +47,21 @@ def safe_state(ctx: RunContext) -> None:
     if ctx.module.writes_sent == 0:
         ctx.log("Nothing was written to the module - no clean-up needed")
         return
-    for action in (
-        lambda: ctx.module.write("W_TXDis", 0x00),
-        lambda: ctx.module.write_value("W_Reset", "reset"),
-        lambda: ctx.bench.power_supply.set_voltage(ctx.product["vcc"]["nominal_v"]),
+    failed = []
+    for name, action in (
+        ("TX enable", lambda: ctx.module.write("W_TXDis", 0x00)),
+        ("reset", lambda: ctx.module.write_value("W_Reset", "reset")),
+        ("supply to nominal", lambda: ctx.bench.power_supply.set_voltage(ctx.product["vcc"]["nominal_v"])),
     ):
         try:
             action()
         except Exception as exc:   # one failing action must not stop the others
-            ctx.log(f"safe state: {exc}")
-    ctx.log("Module returned to a safe state (TX enabled, reset, supply at nominal)")
+            failed.append(name)
+            ctx.log(f"safe state: {name} failed: {exc}")
+    if failed:
+        ctx.log(f"SAFE STATE INCOMPLETE - {', '.join(failed)} failed; check the module before the next run")
+    else:
+        ctx.log("Module returned to a safe state (TX enabled, reset - loops back on, supply at nominal)")
 
 
 def take_backup(ctx: RunContext) -> None:
@@ -83,7 +88,11 @@ def run(ctx: RunContext) -> None:
                                 startup.wait_temp))
         passes = ctx.product["flow"].get("scan_mpd_passes", 2)
         for attempt in range(1, passes + 1):
-            _stage(ctx, "Scan MPD", (mpd_scan.scan_mpd, mpd_scan.adjust_power, mpd_scan.scan_disable))
+            # 800G_TRx_Test.vi V6.8: Adjust Power sits in a case selected by the loop counter,
+            # so it runs on the first pass only
+            steps = (mpd_scan.scan_mpd, mpd_scan.adjust_power, mpd_scan.scan_disable) if attempt == 1 \
+                else (mpd_scan.scan_mpd, mpd_scan.scan_disable)
+            _stage(ctx, "Scan MPD", steps)
             bright = _failed(ctx, ("Tx_Disable(dBm)",))
             if not bright or attempt == passes:
                 break
