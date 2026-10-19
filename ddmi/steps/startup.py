@@ -5,7 +5,8 @@ from ..runctx import RunContext, StopTest
 
 REINI_ATT_DB = 1.0
 VCC_MAX_TRIES = 20
-VCC_MAX_OVERDRIVE_V = 0.3     # never set the supply more than this above the target
+VCC_MAX_OVERDRIVE_V = 0.5     # never set the supply more than this above the target (cable drop at
+                              # ~2 A is ~0.34 V on the lab station; the module voltage is sensed)
 
 
 def reini(ctx: RunContext) -> None:

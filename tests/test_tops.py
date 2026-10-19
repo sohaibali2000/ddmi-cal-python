@@ -27,8 +27,8 @@ def test_sweep_points_aws():
 
 
 def _txmon_at(v):
-    # one MZM fringe: peak near 1.0 V, valley near 2.2 V
-    return 100 + 3000 * 0.5 * (1 + math.cos(math.pi * (v - 1.0) / 1.2))
+    # one MZM fringe, rising edge: valley near 1.0 V, peak near 2.2 V
+    return 100 + 3000 * 0.5 * (1 + math.cos(math.pi * (v - 2.2) / 1.2))
 
 
 def _lane():
@@ -39,8 +39,26 @@ def _lane():
 def test_peak_and_valley():
     volts, txmon = _lane()
     i_peak, i_valley = tops.peak_valley(txmon)
-    assert volts[i_peak] == pytest.approx(1.0)
-    assert volts[i_valley] == pytest.approx(2.2)
+    assert volts[i_valley] == pytest.approx(1.0)
+    assert volts[i_peak] == pytest.approx(2.2)
+
+
+def test_first_rising_edge_is_used_not_the_global_peak_and_valley():
+    # peak at the sweep start, valley ~1.3 V, peak ~2.3 V, valley ~2.9 V (as CH1 of
+    # P185262004341): the falling edge 0.5-1.3 V must not be used
+    volts = tops.sweep_points(0.5, 3.0, 0.02)
+    txmon = [round(500 + 500 * math.cos(math.pi * (v - 0.5) / 0.85)) for v in volts]
+    i_peak, i_valley = tops.peak_valley(txmon)
+    assert volts[i_valley] == pytest.approx(1.36, abs=0.03)
+    assert volts[i_peak] == pytest.approx(2.2, abs=0.03)
+    assert volts[i_valley] < volts[i_peak]
+
+
+def test_a_sweep_with_only_a_falling_edge_is_refused():
+    volts = tops.sweep_points(0.5, 3.0, 0.02)
+    txmon = [round(100 + 3000 * 0.5 * (1 + math.cos(math.pi * (v - 1.0) / 1.2))) for v in volts]
+    with pytest.raises(ValueError):
+        tops.peak_valley(txmon)
 
 
 @pytest.mark.parametrize("mode, level", [
@@ -55,7 +73,8 @@ def test_operating_points_lie_between_peak_and_valley_and_hit_their_level():
     volts, txmon = _lane()
     points = tops.operating_points(volts, txmon, [0.65, 0.56, 0.50, 0.44], "x_of_peak")
     assert all(1.0 < v < 2.2 for v in points.values())
-    assert points[0.65] < points[0.56] < points[0.50] < points[0.44]   # darker = nearer the valley
+    # x_of_peak: 0.44 is the darkest level; on a rising edge darker = lower voltage
+    assert points[0.44] < points[0.50] < points[0.56] < points[0.65]
     assert _txmon_at(points[0.50]) == pytest.approx(0.50 * 3100, rel=0.01)
     mid = tops.tops_mid(points, [0.50, 0.44])
     assert mid == pytest.approx((points[0.50] + points[0.44]) / 2)

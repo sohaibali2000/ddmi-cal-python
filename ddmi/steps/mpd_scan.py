@@ -42,7 +42,12 @@ def scan_mpd(ctx: RunContext) -> None:
     for lane in range(lanes):
         ch = lane + 1
         ctx.detail(f"sweep CH{ch} TXMON: {curves[lane]}")
-        i_peak, i_valley = tops.peak_valley(curves[lane])
+        try:
+            i_peak, i_valley = tops.peak_valley(curves[lane])
+        except ValueError as exc:
+            ctx.log(f"CH{ch}: {exc}; keeping this lane's tops_setpoint and tops_off")
+            valley_v[ch] = None
+            continue
         valley_v[ch] = volts[i_valley]
         peak, valley = curves[lane][i_peak], curves[lane][i_valley]
         if peak < max(2 * valley, valley + cfg.get("min_contrast", 50)):

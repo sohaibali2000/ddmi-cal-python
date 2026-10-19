@@ -64,7 +64,7 @@ tx_disable:
   # module needs seconds to settle after a disable, so each step is read once steady.
   poll_s: 0.5
   min_s: 1.0
-  max_s: 15.0
+  max_s: 8.0
   stable_readings: 3
   tol_db: 0.5
   dark_enough_dbm: -22             # a lane this dark counts as settled

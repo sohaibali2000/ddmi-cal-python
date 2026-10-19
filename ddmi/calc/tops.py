@@ -23,11 +23,39 @@ def sweep_points(start: float, stop: float, step: float) -> list[float]:
     return [round(start + i * step, 6) for i in range(count + 1)]
 
 
+PEAK_MIN_OF_MAX = 0.8     # the edge's peak must reach this share of the sweep's maximum
+
+
 def peak_valley(txmon: list) -> tuple[int, int]:
-    """Indexes of the highest and lowest TXMON reading of one lane's sweep."""
+    """(peak index, valley index) of the first RISING edge of one lane's sweep: the lowest-
+    voltage valley that has a full peak after it, and that peak.
+
+    800G SIP Tx MPD Monitor.vi V6.8 pairs each Peak Search valley with the peak above it, and
+    for AWS requires Vtops_Mid > Vtops_min (rising edge, change list 2025-10-09). Every row of
+    the production CSV has Tops_Mid > Tops_off. On a falling edge the module's TOPS loop
+    does not hold the lane after a reset (it sits at the top of the fringe).
+    """
     if not txmon:
         raise ValueError("empty sweep")
-    return max(range(len(txmon)), key=txmon.__getitem__), min(range(len(txmon)), key=txmon.__getitem__)
+    n, top, bottom = len(txmon), max(txmon), min(txmon)
+    dark = bottom + 0.1 * (top - bottom)       # a real valley, not the slope at the sweep start
+    # valleys: runs of dark points (robust to noise), each at its darkest point
+    runs, start = [], None
+    for i, v in enumerate(txmon + [dark + 1]):
+        if v <= dark and start is None:
+            start = i
+        elif v > dark and start is not None:
+            runs.append((start, i))
+            start = None
+    for k, (a, b) in enumerate(runs):
+        valley = min(range(a, b), key=txmon.__getitem__)
+        end = runs[k + 1][0] if k + 1 < len(runs) else n
+        if valley + 1 >= end:
+            continue
+        peak = max(range(valley + 1, end), key=txmon.__getitem__)
+        if txmon[peak] >= PEAK_MIN_OF_MAX * top:
+            return peak, valley
+    raise ValueError("no rising edge (valley followed by a full peak) in the sweep")
 
 
 def level_for_fraction(fraction: float, peak: float, valley: float, mode: str) -> float:

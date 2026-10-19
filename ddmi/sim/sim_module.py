@@ -79,7 +79,8 @@ class SimModule:
         return max(0.0, 0.04 * (self.bias_ma(lane % LASERS) - 15))   # ~2 dBm out, TXMON peak ~1000 like the real module
 
     def transmission(self, lane: int, v: float) -> float:
-        fringe = 0.5 * (1 + math.cos(self.phi0[lane] + 0.8 * v * v))
+        # real modules: ~2.5 evenly spaced fringes over 0.5-3.0 V (period ~0.95 V)
+        fringe = 0.5 * (1 + math.cos(self.phi0[lane] + 2 * math.pi * v / 0.95))
         return self.insertion[lane] * (self.floor + (1 - self.floor) * fringe)
 
     def _ratio(self, lane: int, v: float) -> float:
