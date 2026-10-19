@@ -6,7 +6,12 @@ from ddmi.hw.regmap import load_regmap
 
 @pytest.fixture(scope="module")
 def regmap():
-    return load_regmap()
+    """The real map plus one test-only UNVERIFIED register for the write-guard tests (every
+    register the run writes is confirmed now)."""
+    from ddmi.hw.regmap import Register
+    rm = load_regmap()
+    rm.registers["T_Unconfirmed"] = Register("T_Unconfirmed", 0xE9, 0xF8, 1, "u8", "UNVERIFIED")
+    return rm
 
 
 class FakeBus:
@@ -101,16 +106,20 @@ def test_confidence_flags(regmap):
     assert regmap["DTXPCal_A"].verified and regmap["VccCal"].verified     # confirmed on hardware
     assert regmap["DRXPCal_A"].verified and regmap["DRXPCal_B"].verified
     assert regmap["IBias"].verified                 # x100 scaling: IIC.vi V6.8 and hardware
-    for name in ("W_IBiasPID", "W_TOPPID",
-                 "AWS_Test_Mode", "TestMode", "DSP_TestMode", "DSP_OperatingMode", "TempOffFunc"):
-        assert not regmap[name].verified, name
+    # confirmed with regcheck on a LabVIEW-finished module (2026-10-19)
+    for name in ("W_IBiasPID", "W_TOPPID", "AWS_Test_Mode", "TestMode", "DSP_TestMode",
+                 "DSP_OperatingMode", "TempOffFunc", "W_Bias_setpoint", "W_Bias_setpointHT",
+                 "W_Bias_setpointLT"):
+        assert regmap[name].verified, name
+    real = load_regmap()
+    assert not [r.name for r in real.registers.values() if not r.verified]
 
 
 def test_hardware_refuses_unverified_writes(regmap):
     bus = FakeBus()
     module = Module(bus, regmap, is_sim=False)
-    with pytest.raises(UnverifiedWriteError, match="W_IBiasPID"):
-        module.write("W_IBiasPID", 0)
+    with pytest.raises(UnverifiedWriteError, match="T_Unconfirmed"):
+        module.write("T_Unconfirmed", 1)
     assert bus.writes == []
     module.write("W_TXDis", 0xFF)                      # verified registers still go through
     assert bus.writes == [(0x10, 0x82, b"\xff")]
@@ -138,7 +147,7 @@ def test_dry_run_logs_but_sends_nothing(regmap):
 
 def test_dry_run_logs_unverified_writes_instead_of_refusing(regmap):
     bus, lines = FakeBus(), []
-    Module(bus, regmap, is_sim=False, dry_run=True, log=lines.append).write("W_IBiasPID", 0)
+    Module(bus, regmap, is_sim=False, dry_run=True, log=lines.append).write("T_Unconfirmed", 1)
     assert bus.writes == [] and "UNVERIFIED" in lines[0]
 
 

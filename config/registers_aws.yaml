@@ -40,18 +40,24 @@ registers:
   # --- bias and TOPS ---
   # Per-laser bias setpoint at room temperature (lanes 1/5, 2/6, 3/7, 4/8 share a laser).
   # Address from the V12 TEC change list ("Read_Bias_Setpoint_RT_0xE9_D2"); read only here.
-  R_Bias_setpoint: {page: 0xE9, byte: 0xD2, len: 8, fmt: u16_array, conf: UNVERIFIED}
+  R_Bias_setpoint: {page: 0xE9, byte: 0xD2, len: 8, fmt: u16_array, conf: HW}
   # IIC.vi V6.8 (W_Bias_setpoint / HT / LT, AWS): E9h 0xD2 / 0xB0 / 0xB8, 4 x u16, one per laser.
-  W_Bias_setpoint:   {page: 0xE9, byte: 0xD2, len: 8, fmt: u16_array, conf: UNVERIFIED}
-  W_Bias_setpointHT: {page: 0xE9, byte: 0xB0, len: 8, fmt: u16_array, conf: UNVERIFIED}
-  W_Bias_setpointLT: {page: 0xE9, byte: 0xB8, len: 8, fmt: u16_array, conf: UNVERIFIED}
+  W_Bias_setpoint:   {page: 0xE9, byte: 0xD2, len: 8, fmt: u16_array, conf: HW}
+  W_Bias_setpointHT: {page: 0xE9, byte: 0xB0, len: 8, fmt: u16_array, conf: HW}
+  W_Bias_setpointLT: {page: 0xE9, byte: 0xB8, len: 8, fmt: u16_array, conf: HW}
   IBias:          {page: 0xE9, byte: 0xC0, len: 8,  fmt: u16_scaled_array, scale: 100, conf: HW}  # 4 lasers, raw = mA x 100 (IIC.vi V6.8; 60->180 mA moved TX ~5 dB on hardware)
-  W_IBiasPID:     {page: 0xE9, byte: 0xD0, len: 1,  fmt: u8, conf: UNVERIFIED}   # 0 = loop off; restore 15 (or 3)
+  W_IBiasPID:     {page: 0xE9, byte: 0xD0, len: 1,  fmt: u8, conf: HW}   # 0 = loop off; 15 after a LabVIEW run
   Vtops:          {page: 0xE9, byte: 0xA0, len: 16, fmt: volt_array, full_scale: 5.0, conf: CODE}
-  W_TOPPID:       {page: 0xE8, byte: 0x80, len: 1,  fmt: u8, conf: UNVERIFIED}   # TOPS loop on/off; on-value unconfirmed
+  W_TOPPID:       {page: 0xE8, byte: 0x80, len: 1,  fmt: u8, conf: HW}   # 0 = TOPS loop off; 255 after a LabVIEW run
   tops_setpoint:  {page: 0xE8, byte: 0x82, len: 16, fmt: u16_array, conf: HW}     # big-endian, confirmed
   tops_off:       {page: 0xE8, byte: 0xCC, len: 16, fmt: volt_array, full_scale: 5.0, conf: CODE}
   tops_room:      {page: 0xE8, byte: 0xAC, len: 16, fmt: volt_array, full_scale: 5.0, conf: CODE}
+
+  # Mode, loop and bias-setpoint registers confirmed 2026-10-19 with `regcheck` on module
+  # P172262504894, finished by the LabVIEW V6.8 station and never touched by this program:
+  # TempOffFunc 59 (FEh:95h), TestMode 0xCC, DSP modes 0/0, AWS_Test_Mode 0, Bias_setpoint
+  # RT = HT = LT = 280/280/410/450 (E9h D2/B0/B8), IBiasPID 15, TOPPID 255. Their effects were
+  # also seen on hardware (loops, bias, TX disable).
 
   # --- calibration storage: 4 offsets then 4 slopes per page, float32 little-endian ---
   # Read from a calibrated AOI module (2026-10-14): float32 LITTLE-endian, the 4 OFFSETS
@@ -66,13 +72,13 @@ registers:
   VccCal:         {page: 0xEB, byte: 0x90, len: 8,  fmt: f32le_array, conf: HW}           # offset, slope
 
   # --- mode registers: page/byte order unconfirmed (build map 5.5) ---
-  AWS_Test_Mode:      {page: 0xEE, byte: 0x80, len: 1, fmt: u8, conf: UNVERIFIED}   # 1 = enter test mode
-  TestMode:           {page: 0xEE, byte: 0x83, len: 1, fmt: u8, conf: UNVERIFIED}   # 0xCC to exit
-  DSP_TestMode:       {page: 0xCF, byte: 0x81, len: 1, fmt: u8, conf: UNVERIFIED}   # W_Debug_AWS = 1, W_Nomal_AWS = 0
-  DSP_OperatingMode:  {page: 0xCF, byte: 0x86, len: 1, fmt: u8, conf: UNVERIFIED}   # W_Daul_AWS = 5, W_Mission_AWS = 0
+  AWS_Test_Mode:      {page: 0xEE, byte: 0x80, len: 1, fmt: u8, conf: HW}   # V6.8 DDMI CAL writes 0
+  TestMode:           {page: 0xEE, byte: 0x83, len: 1, fmt: u8, conf: HW}   # 0xCC to exit
+  DSP_TestMode:       {page: 0xCF, byte: 0x81, len: 1, fmt: u8, conf: HW}   # W_Debug_AWS = 1, W_Nomal_AWS = 0
+  DSP_OperatingMode:  {page: 0xCF, byte: 0x86, len: 1, fmt: u8, conf: HW}   # W_Daul_AWS = 5, W_Mission_AWS = 0
   # IIC.vi V6.8 "Disable/Read Temp Off Func", value 59: FEh 0x98 for DUT type "Oracle(AWS DUT)"
   # (material 400454000050 only), FEh 0x95 for every other type - incl. AWS 2xFR4 (400454000030).
-  TempOffFunc:        {page: 0xFE, byte: 0x95, len: 1, fmt: u8, conf: UNVERIFIED}
+  TempOffFunc:        {page: 0xFE, byte: 0x95, len: 1, fmt: u8, conf: HW}
 
 # Values the flow writes that are themselves unconfirmed.
 values:

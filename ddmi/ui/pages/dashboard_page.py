@@ -112,7 +112,9 @@ class SlotCard(QFrame):
                                 "Please enter a User ID before starting in online mode.")
             return
         run = self.engine.settings.data["run"]
-        if (not is_sim(self.engine.station_cfg) and not run.get("dry_run")
+        from ...hw.regmap import load_regmap
+        unconfirmed = [r.name for r in load_regmap().registers.values() if not r.verified]
+        if (unconfirmed and not is_sim(self.engine.station_cfg) and not run.get("dry_run")
                 and not run.get("allow_unverified_writes")):
             QMessageBox.warning(
                 self, "Writes not enabled",
