@@ -43,7 +43,7 @@ registers:
   W_Bias_setpoint:   {page: 0xE9, byte: 0xD2, len: 8, fmt: u16_array, conf: UNVERIFIED}
   W_Bias_setpointHT: {page: 0xE9, byte: 0xB0, len: 8, fmt: u16_array, conf: UNVERIFIED}
   W_Bias_setpointLT: {page: 0xE9, byte: 0xB8, len: 8, fmt: u16_array, conf: UNVERIFIED}
-  IBias:          {page: 0xE9, byte: 0xC0, len: 8,  fmt: u16_scaled_array, scale: 100, conf: UNVERIFIED}  # 4 lasers, mA; scaling: constant 100 seen
+  IBias:          {page: 0xE9, byte: 0xC0, len: 8,  fmt: u16_scaled_array, scale: 100, conf: HW}  # 4 lasers, raw = mA x 100 (IIC.vi V6.8; 60->180 mA moved TX ~5 dB on hardware)
   W_IBiasPID:     {page: 0xE9, byte: 0xD0, len: 1,  fmt: u8, conf: UNVERIFIED}   # 0 = loop off; restore 15 (or 3)
   Vtops:          {page: 0xE9, byte: 0xA0, len: 16, fmt: volt_array, full_scale: 5.0, conf: CODE}
   W_TOPPID:       {page: 0xE8, byte: 0x80, len: 1,  fmt: u8, conf: UNVERIFIED}   # TOPS loop on/off; on-value unconfirmed
