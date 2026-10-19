@@ -17,6 +17,7 @@ BACKUP_REGISTERS = [
     "DTXPCal_A", "DTXPCal_B", "DRXPCal_A", "DRXPCal_B", "VccCal",
     "tops_setpoint", "tops_off", "tops_room",
     "IBias", "W_IBiasPID", "W_TOPPID",
+    "W_Bias_setpoint", "W_Bias_setpointHT", "W_Bias_setpointLT",     # Adjust Power rewrites these
     "AWS_Test_Mode", "TestMode", "DSP_TestMode", "DSP_OperatingMode", "TempOffFunc",
 ]
 
