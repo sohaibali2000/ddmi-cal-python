@@ -114,6 +114,7 @@ wait_temp:
 
 vcc:
   icc_min_ma: 1800                 # V6.8 "ICC Spec.txt" (1.8 A)
+  adjust_wait_s: 2.0               # Auto Adjust Vcc.vi V6.8: 2000 ms after every supply change
   nominal_v: 3.3
   cal_points_v: [3.13, 3.47]
   settle_s: 2.0

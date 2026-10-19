@@ -61,9 +61,12 @@ def auto_adjust_vcc(ctx: RunContext, target: float) -> float:
         ctx.log(f"VCC (dry-run): would adjust to {target} V; supply reads {actual:.4f} V and is left as it is")
         return actual
     setting = target
+    # Auto Adjust Vcc.vi V6.8: set, wait 2000 ms, measure, until within 0.01 V. The wait also
+    # lets the module's VCC monitor catch up (with 0.2 s it still read the previous point).
+    wait = ctx.product["vcc"].get("adjust_wait_s", 2.0)
     for attempt in range(1, VCC_MAX_TRIES + 1):
         supply.set_voltage(setting)
-        ctx.sleep(0.2)
+        ctx.sleep(wait)
         actual = supply.read_module_voltage()
         ctx.detail(f"auto_adjust_vcc try {attempt}: set {setting:.4f} V -> module {actual:.4f} V")
         if abs(target - actual) <= tol:
