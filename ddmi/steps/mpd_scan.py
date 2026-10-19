@@ -113,9 +113,11 @@ def _analyse_and_write(ctx: RunContext, cfg: dict, curves: list, volts: list) ->
         txmon, mpd_out = module.read("R_TXMON"), module.read("R_MPD_OUT")
         ctx.detail(f"op point {key}: TXMON {txmon}, MPD_OUT {mpd_out}")
         if key != "mid":
-            # MPD_OUT at each operating point: the production CSV's TXP_MPDOut columns
+            # TXMON / MPD_OUT x 1000 at each operating point (MPD Monitor.vi V6.8 frame 3):
+            # the production CSV's TXP_MPDOut_4.5dB..2.5dB columns
             for ch in points:
-                scan["lanes"][ch].setdefault("mpd_out", {})[str(key)] = mpd_out[ch - 1]
+                ratio = round(txmon[ch - 1] / mpd_out[ch - 1] * 1000) if mpd_out[ch - 1] else None
+                scan["lanes"][ch].setdefault("mpd_out", {})[str(key)] = ratio
             continue
         for ch in ctx.channels:
             value = None

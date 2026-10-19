@@ -463,3 +463,12 @@ def test_dr8_adjust_power_values_are_refused(product):
         validate_product(bad)
     assert product["adjust_power"]["default_setpoint"] == [280, 280, 410, 450]
     assert product["adjust_power"]["window_dbm"] == [0.7, 2.3]
+
+
+def test_txp_mpdout_is_the_monitor_ratio_rising_toward_the_peak(station_cfg, product):
+    """V6.8: TXP_MPDOut = TXMON / MPD_OUT x 1000 at 4.5 / 3.5 / 3.0 / 2.5 dB below the peak."""
+    record = run(station_cfg, product)
+    for lane in record["mpd_scan"]["lanes"].values():
+        r = lane["mpd_out"]
+        assert r["0.65"] < r["0.56"] < r["0.5"] < r["0.44"]          # brighter -> higher ratio
+        assert r["0.56"] <= lane["setpoint"] <= r["0.5"] + 5         # Tops_Mid sits between 3.5 and 3.0 dB
