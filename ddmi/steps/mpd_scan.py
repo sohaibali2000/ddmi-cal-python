@@ -202,7 +202,7 @@ def _measure_disabled(ctx: RunContext, tops_off: list, cfg: dict) -> dict:
                 break
         if waited >= cfg["max_s"]:
             break
-    return hist[-1]
+    return hist[-1], waited
 
 
 def scan_disable(ctx: RunContext) -> None:
@@ -220,9 +220,11 @@ def scan_disable(ctx: RunContext) -> None:
     ctx.log(f"Scan_Disable: all lanes disabled together; tops_off +/-{step} V, then "
             f"{cfg['steps']} steps toward darker; {cfg['extra_steps']} more if above {cfg['recheck_dbm']} dBm")
     readings = {ch: [] for ch in chans}
+    waits = []
 
     def measure(values):
-        p = _measure_disabled(ctx, values, cfg)
+        p, waited = _measure_disabled(ctx, values, cfg)
+        waits.append(round(waited, 1))
         for ch in chans:
             readings[ch].append((round(values[ch - 1], 3), round(p[ch], 2)))
         return p
@@ -261,6 +263,8 @@ def scan_disable(ctx: RunContext) -> None:
         module.write_value("W_TXDis", "txdis_all_on")
         ctx.sleep(cfg["enable_wait_s"])
 
+    ctx.log(f"Scan_Disable: {len(waits)} steps, settle waits {waits} s "
+            f"(total {sum(waits):.1f} s, {sum(w >= cfg['max_s'] for w in waits)} hit the {cfg['max_s']} s limit)")
     lanes_meta = ctx.meta.get("mpd_scan", {}).get("lanes", {})
     for ch in chans:
         ctx.detail(f"CH{ch} tx-disable search (tops_off V, dBm): {readings[ch]}")

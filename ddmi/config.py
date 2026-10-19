@@ -91,6 +91,16 @@ def validate_product(cfg: dict) -> dict:
     if not isinstance(order, list) or sorted(order) != sorted(DDMI_CAL_PARTS):
         raise ConfigError(f"flow.ddmi_cal_order must list each of {DDMI_CAL_PARTS} once, got {order!r}")
 
+    # Adjust Power: one setpoint per laser. Item_Test.vi V6.8 has two AWS branches: LC-2*FR4
+    # [280, 280, 410, 450] / 0.7-2.3 dBm (this product, 4 lasers) and MPO-DR8 [300, 350] /
+    # 1.0-2.6 dBm (2 lasers) - the DR8 values must never end up here.
+    setpoint = _numbers(cfg, "adjust_power.default_setpoint", int(cfg["lasers"]))
+    if any(not 100 <= v <= 2500 for v in setpoint):
+        raise ConfigError("adjust_power.default_setpoint values must be within 100-2500")
+    _range(cfg, "adjust_power.window_dbm")
+    _number(cfg, "adjust_power.step_up", 0)
+    _number(cfg, "adjust_power.step_down", 0)
+    _number(cfg, "adjust_power.settle_s", 0)
     _number(cfg, "tx_disable.step_v", 1e-6)
     _number(cfg, "tx_disable.steps", 0)
     _number(cfg, "tx_disable.recheck_dbm")

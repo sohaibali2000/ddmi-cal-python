@@ -451,3 +451,15 @@ def test_tops_setpoint_is_written_after_the_scan_reset(station_cfg, product):
     setpoint = next(i for i, l in enumerate(lines) if "I2C W tops_setpoint" in l)
     assert setpoint > first_reset
     assert not any("Wait_Temp" in l for l in lines)          # skipped at DDMI Cal
+
+
+def test_dr8_adjust_power_values_are_refused(product):
+    """Item_Test.vi V6.8 also has the MPO-DR8 branch ([300, 350], 1.0-2.6 dBm, 2 lasers)."""
+    import copy
+    from ddmi.config import ConfigError, validate_product
+    bad = copy.deepcopy(product)
+    bad["adjust_power"]["default_setpoint"] = [300, 350]
+    with pytest.raises(ConfigError):
+        validate_product(bad)
+    assert product["adjust_power"]["default_setpoint"] == [280, 280, 410, 450]
+    assert product["adjust_power"]["window_dbm"] == [0.7, 2.3]
