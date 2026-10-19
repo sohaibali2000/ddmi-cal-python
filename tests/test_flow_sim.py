@@ -499,3 +499,18 @@ def test_vtops_not_above_tops_off_rescans_then_fails(station_cfg, product, monke
     record = run(station_cfg, product)
     assert len(calls) == 2                                # scanned twice (V6.8 loop of 2)
     assert "Scan_MPD CH3: Vtops not above tops_off after the scan" in record["failing_items"]
+
+
+def test_mes_gets_the_module_pn_for_read_spec(station_cfg, product, tmp_path):
+    from ddmi.mes.offline import OfflineMes
+
+    class _Mes(OfflineMes):
+        pns = []
+
+        def read_spec(self, pn, station):
+            self.pns.append(pn)
+            return super().read_spec(pn, station)
+
+    mes = _Mes(tmp_path / "mes")
+    record = run(station_cfg, product, mes=mes)
+    assert mes.pns and mes.pns[0] and mes.pns[0] == record["pn"]

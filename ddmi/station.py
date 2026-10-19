@@ -99,13 +99,23 @@ def _build_real_station(station_cfg: dict, regmap, dry_run: bool, allow_unverifi
             supply = SensedSupply(supply, lambda: bus.read_adc(pin) * scale)
             log(f"VCC at the module: USB-ISS analogue pin {pin} reads {supply.read_module_voltage():.3f} V")
 
-        meter = build_power_meter(station_cfg, log)
-        closers.append(meter.close)
+        # Meter and attenuator can serve several slots: opened once per process, every call
+        # locked, closed when the last slot releases them.
+        from .hw import shared
+
+        meter, release_meter = shared.acquire(f"meter:{station_cfg['power_meter']['resource']}",
+                                              lambda: build_power_meter(station_cfg, log))
+        closers.append(release_meter)
 
         att_cfg = station_cfg["attenuator"]
-        att = AttenuatorAT4308(resolve_port(att_cfg["resource"]), att_cfg["dll_dir"], log=log)
-        att.connect()
-        closers.append(att.close)
+
+        def open_attenuator():
+            dev = AttenuatorAT4308(resolve_port(att_cfg["resource"]), att_cfg["dll_dir"], log=log)
+            dev.connect()
+            return dev
+
+        att, release_att = shared.acquire(f"attenuator:{att_cfg['resource']}", open_attenuator)
+        closers.append(release_att)
         attenuator = LaneAttenuator(att, att_cfg.get("lane_channels", list(range(1, 9))),
                                     att_cfg.get("min_att_db", 0.0))
     except Exception:

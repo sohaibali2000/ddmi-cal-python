@@ -152,7 +152,14 @@ def run_slot(*, station_cfg: dict, product: dict, slot: int = 1, scanned_sn: str
             return record
 
         mes = mes or OfflineMes(results_dir / "mes_offline")
-        pn = ""   # the PN is only known after Read SN; the offline spec does not depend on it
+        # Read_Spec needs the module's PN: read it now (read-only) so MES returns this
+        # product's limits, not a guess.
+        try:
+            pn = station.module.read("R_Information")[:16].strip()
+            record["pn"] = pn
+        except Exception as exc:
+            pn = ""
+            say(f"WARNING: could not read the module PN before MES ({exc})")
         if record["dry_run"]:
             # A dry run never checks in, uploads or checks out: it only records locally.
             say("Dry run: MES is skipped (no check-in, upload or check-out)")

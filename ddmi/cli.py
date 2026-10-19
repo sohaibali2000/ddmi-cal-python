@@ -227,6 +227,42 @@ def cmd_regcheck(args) -> int:
     return 0 if not diffs else 1
 
 
+def cmd_rx_settle(args) -> int:
+    """Measure how long RSSI takes to settle after an attenuator step (RX settle, VERIFY).
+    Writes only the attenuator; the module is only read. Needs light on both RX fibres."""
+    import time
+
+    from .station import build_station
+
+    station_cfg = config.load_station(_path(args.station))
+    station = build_station(station_cfg, dry_run=False, allow_unverified=False)
+    att, module = station.bench.attenuator, station.module
+    try:
+        for start, end in ((args.low, args.high), (args.high, args.low)):
+            for ch in att.physical_channels:
+                att.set_channel_attenuation(ch, start)
+            time.sleep(3.0)
+            before = module.read("R_RSSI")
+            for ch in att.physical_channels:
+                att.set_channel_attenuation(ch, end)
+            t0, trace = time.perf_counter(), []
+            while time.perf_counter() - t0 < args.seconds:
+                trace.append((time.perf_counter() - t0, module.read("R_RSSI")))
+                time.sleep(0.05)
+            final = trace[-1][1]
+            print(f"\n{start} -> {end} dB: RSSI {before} -> {final}")
+            for lane in range(8):
+                tol = max(2, 0.02 * final[lane])
+                settled = next((t for i, (t, r) in enumerate(trace)
+                                if all(abs(x[1][lane] - final[lane]) <= tol for x in trace[i:])), None)
+                print(f"  CH{lane + 1}: settled within 2 % after {settled:.2f} s" if settled is not None
+                      else f"  CH{lane + 1}: not settled in {args.seconds} s")
+        print("\nUse the slowest lane plus a margin as rx_cal.settle_s.")
+    finally:
+        station.close()
+    return 0
+
+
 def cmd_restore(args) -> int:
     """Write a module register backup (taken by every run before its first write) back."""
     import json
@@ -323,6 +359,13 @@ def main(argv=None) -> int:
     regcheck = sub.add_parser("regcheck", help="read-only: check unconfirmed registers on a module LabVIEW just finished")
     regcheck.add_argument("--port", default="usb-sn:00071345", help="DUT USB-ISS (COMx or usb-sn:...)")
     regcheck.set_defaults(func=cmd_regcheck)
+
+    settle = sub.add_parser("rx-settle", help="measure RSSI settling after an attenuator step")
+    settle.add_argument("--station", default=str(config.CONFIG_DIR / "station_lab.yaml"))
+    settle.add_argument("--low", type=float, default=6.0, help="attenuation, dB")
+    settle.add_argument("--high", type=float, default=12.0, help="attenuation, dB")
+    settle.add_argument("--seconds", type=float, default=4.0, help="how long to watch RSSI")
+    settle.set_defaults(func=cmd_rx_settle)
 
     rest = sub.add_parser("restore", help="write a module register backup back")
     rest.add_argument("--file", required=True, help="backup file from results/backups")

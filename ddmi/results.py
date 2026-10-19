@@ -31,10 +31,25 @@ LIMIT_KEYS = {
 
 
 def limits_from(product_limits: dict, spec: dict | None = None) -> dict[str, tuple]:
-    """Limits per result item; a MES spec overrides the product config."""
+    """Limits per result item; a MES spec overrides the product config.
+
+    A spec entry can be keyed by a product-config limit key (dtxp_db), by our result item name
+    (dTxP(dB)) or by the production / LabVIEW column name (dTxP); V6.8 ShowPF checks every item
+    Read_Spec returns, so any limit MES sends is applied.
+    """
+    from .prod_csv import COLUMNS
+
     merged = dict(product_limits)
     merged.update(spec or {})
-    return {item: tuple(merged[key]) for item, key in LIMIT_KEYS.items() if key in merged}
+    limits = {item: tuple(merged[key]) for item, key in LIMIT_KEYS.items() if key in merged}
+    by_column = {col: name for col, (name, _dec, _fb) in COLUMNS.items() if name and not name.endswith("@")}
+    for key, value in (spec or {}).items():
+        if key in LIMIT_KEYS.values():
+            continue
+        item = by_column.get(key, key)
+        if isinstance(value, (list, tuple)) and len(value) == 2:
+            limits[item] = tuple(value)
+    return limits
 
 
 def item_name(item: str, ch: int) -> str:
