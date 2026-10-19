@@ -4,7 +4,7 @@ from __future__ import annotations
 import copy
 
 from ..calc import tops
-from ..runctx import RunContext
+from ..runctx import RunContext, StopTest
 from .tops_lock import relock
 
 
@@ -185,6 +185,14 @@ def adjust_power(ctx: RunContext) -> None:
     """
     cfg, module = ctx.product["adjust_power"], ctx.module
     default = list(cfg["default_setpoint"])
+    # Never rewrite the bias on a reading that is not the module's light (TX fibre off,
+    # meter not connected): on 2026-10-19 -79 dBm on every lane still bumped the setpoints.
+    before = ctx.true_tx_powers()
+    dark = [ch for ch in ctx.channels if before[ch] < cfg["min_light_dbm"]]
+    if dark:
+        raise StopTest(f"Adjust Power: TX power below {cfg['min_light_dbm']} dBm on CH{dark} "
+                       f"({[round(before[ch], 1) for ch in dark]} dBm) - is the TX fibre connected? "
+                       "Bias setpoints not changed")
     for reg in BIAS_SETPOINT_REGS:
         module.write(reg, default)
     ctx.sleep(cfg["settle_s"])

@@ -295,11 +295,12 @@ def test_ignored_vendor_writes_leave_every_calibration_untouched(station_cfg, pr
     record = run(station_cfg, product, station=station)
     after = (list(sim.tx_cal[0]), list(sim.tx_cal[1]), list(sim.rx_cal[0]), sim.vcc_cal,
              list(sim.setpoint), list(sim.tops_off))
-    # Caught on the first calibration read-back: the run stops instead of reporting
-    # a calibration that never reached the module.
-    assert record["result"] == "ERROR"
+    # The run stops instead of reporting a calibration that never reached the module: at the
+    # first calibration read-back, or earlier when the module gives no light for Adjust Power.
+    assert record["result"] in ("ERROR", "FAIL")
     assert after == before
-    assert any("discarded the write" in f for f in record["failing_items"]), record["failing_items"]
+    assert any("discarded the write" in f or "Bias setpoints not changed" in f
+               for f in record["failing_items"]), record["failing_items"]
 
 
 
@@ -514,3 +515,13 @@ def test_mes_gets_the_module_pn_for_read_spec(station_cfg, product, tmp_path):
     mes = _Mes(tmp_path / "mes")
     record = run(station_cfg, product, mes=mes)
     assert mes.pns and mes.pns[0] and mes.pns[0] == record["pn"]
+
+
+def test_adjust_power_leaves_the_bias_alone_without_light(product):
+    """2026-10-19 15:41: TX fibre off (-79 dBm on every lane) still bumped the setpoints."""
+    from ddmi.runctx import StopTest
+    from ddmi.steps.mpd_scan import adjust_power
+    ctx = _FakeCtx(product, {ch: -79.5 for ch in range(1, 9)})
+    with pytest.raises(StopTest, match="TX fibre"):
+        adjust_power(ctx)
+    assert not [w for w in ctx.writes if w[0].startswith("W_Bias_setpoint")]

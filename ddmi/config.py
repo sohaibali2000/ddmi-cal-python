@@ -101,6 +101,7 @@ def validate_product(cfg: dict) -> dict:
     _number(cfg, "adjust_power.step_up", 0)
     _number(cfg, "adjust_power.step_down", 0)
     _number(cfg, "adjust_power.settle_s", 0)
+    _number(cfg, "adjust_power.min_light_dbm")
     _number(cfg, "tx_disable.step_v", 1e-6)
     _number(cfg, "tx_disable.steps", 0)
     _number(cfg, "tx_disable.recheck_dbm")

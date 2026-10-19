@@ -52,6 +52,7 @@ adjust_power:
   step_up: 20                      # below the window
   step_down: 30                    # above the window
   settle_s: 2.0
+  min_light_dbm: -10               # any lane darker: no light from the module -> stop, bias untouched
 
 tx_disable:
   # Item_Test.vi V6.8 "Scan_Disable": all lanes disabled together, step 0.01 V, one step
