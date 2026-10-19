@@ -76,14 +76,12 @@ def level_for_fraction(fraction: float, peak: float, valley: float, mode: str) -
 
 
 def voltage_at_level(volts: list, txmon: list, level: float) -> float:
-    """Vtops where TXMON crosses level, searched only between the valley and the peak."""
+    """Vtops of the sweep step whose TXMON is closest to level, searched only between the
+    valley and the peak (MPD Monitor.vi V6.8: closest step, no interpolation, 0.02 V
+    resolution)."""
     i_peak, i_valley = peak_valley(txmon)
     lo, hi = sorted((i_peak, i_valley))
-    for i in range(lo, hi):
-        a, b = txmon[i], txmon[i + 1]
-        if a != b and min(a, b) <= level <= max(a, b):
-            return volts[i] + (level - a) / (b - a) * (volts[i + 1] - volts[i])
-    raise ValueError(f"TXMON never crosses {level:.1f} between valley and peak")
+    return volts[min(range(lo, hi + 1), key=lambda i: abs(txmon[i] - level))]
 
 
 def operating_points(volts: list, txmon: list, fractions: list, mode: str) -> dict[float, float]:

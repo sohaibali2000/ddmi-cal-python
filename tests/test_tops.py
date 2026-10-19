@@ -75,7 +75,9 @@ def test_operating_points_lie_between_peak_and_valley_and_hit_their_level():
     assert all(1.0 < v < 2.2 for v in points.values())
     # x_of_peak: 0.44 is the darkest level; on a rising edge darker = lower voltage
     assert points[0.44] < points[0.50] < points[0.56] < points[0.65]
-    assert _txmon_at(points[0.50]) == pytest.approx(0.50 * 3100, rel=0.01)
+    # V6.8 takes the closest sweep step (0.02 V), so the level is hit to within one step
+    assert all(v in volts for v in points.values())
+    assert _txmon_at(points[0.50]) == pytest.approx(0.50 * 3100, rel=0.05)
     mid = tops.tops_mid(points, [0.50, 0.44])
     assert mid == pytest.approx((points[0.50] + points[0.44]) / 2)
 

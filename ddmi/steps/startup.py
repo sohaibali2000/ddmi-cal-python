@@ -33,6 +33,8 @@ def wait_temp(ctx: RunContext) -> None:
     """800G_TRx_Test.vi V6.8 Wait_Temp, RT, AWS: wait until the case temperature is within
     30-40 C. This station has no case sensor, so the module's DDMI temperature is used."""
     cfg = ctx.product["wait_temp"]
+    if not cfg.get("enabled", True):
+        return
     low, high = cfg["range_c"]
     waited = 0.0
     while True:

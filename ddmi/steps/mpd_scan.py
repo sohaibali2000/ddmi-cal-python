@@ -8,8 +8,30 @@ from ..runctx import RunContext
 from .tops_lock import relock
 
 
+def _has_rising_edge(curve: list) -> bool:
+    try:
+        tops.peak_valley(curve)
+        return True
+    except ValueError:
+        return False
+
+
 def scan_mpd(ctx: RunContext) -> None:
-    cfg, module = ctx.product["mpd_scan"], ctx.module
+    cfg = ctx.product["mpd_scan"]
+    attempts = cfg.get("scan_attempts", 1)
+    for attempt in range(1, attempts + 1):
+        curves, volts = _sweep(ctx, cfg)
+        missing = [lane + 1 for lane, c in enumerate(curves) if not _has_rising_edge(c)]
+        if not missing or attempt == attempts:
+            break
+        # 800G_TRx_Test.vi V6.8 Scan_MPD: the MPD Monitor call sits in a loop of 2 that
+        # repeats when the scan does not pass
+        ctx.log(f"Scan_MPD: CH{missing} have no rising edge - scanning again")
+    _analyse_and_write(ctx, cfg, curves, volts)
+
+
+def _sweep(ctx: RunContext, cfg: dict):
+    module = ctx.module
     lanes = len(ctx.channels)
 
     # 800G SIP Tx MPD Monitor.vi V6.8, first frame: both loops off, every lane at 1.0 V,
@@ -35,6 +57,13 @@ def scan_mpd(ctx: RunContext) -> None:
             curves[lane].append(value)
         scan["volts"].append(v)
         ctx.on_data("mpd_point", {"v": v, "txmon": list(txmon)})
+    return curves, volts
+
+
+def _analyse_and_write(ctx: RunContext, cfg: dict, curves: list, volts: list) -> None:
+    module = ctx.module
+    lanes = len(ctx.channels)
+    scan = ctx.meta["mpd_scan"]
 
     # Per lane: peak, valley and the operating-point voltages between them.
     fractions = cfg["op_point_fractions"]
@@ -100,21 +129,21 @@ def scan_mpd(ctx: RunContext) -> None:
             ctx.results.add("Tops_Setpoint", ch, value)
             ctx.results.add("Tops_Mid(V)", ch, round(points[ch]["mid"], 3) if ch in points else None)
 
-    # Last frame: tops_setpoint, Vtops = Tops_Mid and tops_off = valley, both coerced to
-    # 0.2-3.0 V, then wait 2 s, W_Reset, wait 10 s (the reset turns the loops back on).
+    # Last frame, in the order the V6.8 error wire runs: Vtops = Tops_Mid, tops_off = valley
+    # (both coerced to 0.2-3.0 V), wait 2 s, W_Reset, wait 10 s, then tops_setpoint.
     lo, hi = cfg["write_clamp_v"]
     clamp = lambda v: min(max(v, lo), hi)
     current_v, current_off = module.read("Vtops"), module.read("tops_off")
     mid_v = [clamp(points[ch]["mid"]) if ch in points else current_v[ch - 1] for ch in ctx.channels]
     off_v = [current_off[ch - 1] if valley_v[ch] is None else clamp(valley_v[ch]) for ch in ctx.channels]
-    module.write("tops_setpoint", setpoints)
     module.write("Vtops", mid_v)
     module.write("tops_off", off_v)
     ctx.sleep(cfg["end_wait_s"])
     module.write_value("W_Reset", "reset")
-    ctx.log(f"tops_setpoint {setpoints}, Vtops = Tops_Mid, tops_off = valley written; "
-            f"W_Reset, wait {cfg['after_reset_wait_s']} s")
     ctx.sleep(cfg["after_reset_wait_s"])
+    module.write("tops_setpoint", setpoints)
+    ctx.log(f"Vtops = Tops_Mid, tops_off = valley; W_Reset, {cfg['after_reset_wait_s']} s; "
+            f"tops_setpoint {setpoints} written")
     ctx.detail(f"after reset: Vtops {module.read('Vtops')}, tops_off {module.read('tops_off')}")
     ctx.on_data("mpd_result", {"lanes": copy.deepcopy(scan["lanes"])})
     relock(ctx, "after Scan_MPD")

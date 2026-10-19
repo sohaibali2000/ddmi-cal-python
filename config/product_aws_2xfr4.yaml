@@ -34,7 +34,7 @@ mpd_scan:
   # about 3.25 dB below the peak.
   tops_mid_from: [0.56, 0.50]
   setpoint_scale: 1000             # tops_setpoint = round(TXMON / MPD_OUT * 1000)
-  scan_attempts: 1                 # V12: 2 attempts, up to 2 scans each
+  scan_attempts: 2                 # V6.8 Scan_MPD: the MPD Monitor call repeats once if the scan fails
 
 tops_lock:
   # After the loop is switched on and after every reset: loop off, Vtops = Tops_Mid, loop on,
@@ -105,6 +105,9 @@ rx_cal:
   settle_s: 1.0                    # VERIFY (computed delay in code)
 
 wait_temp:
+  # V6.8 skips Wait_Temp at the DDMI Cal station (no temperature controller; the Wait_Temp
+  # frame compares the station with "DDMI Cal"). DDMI_Temp 30-60 C is still checked at the end.
+  enabled: false
   # V6.8 Wait_Temp (RT, AWS) waits for the CASE temperature (thermostream sensor) to be 30-40 C.
   # This station has no case sensor; the module's DDMI temperature reads a few degrees above
   # the case, so the wait uses the DDMI_Temp spec instead: a cold module is warmed up first.

@@ -429,7 +429,7 @@ def test_set_temp_writes_aws_test_mode_0(station_cfg, product):
 def test_wait_temp_stops_a_module_that_stays_cold(station_cfg, product):
     station = build_station(station_cfg, sim_sn="AWS0001")
     station.sim_module.temp_c = 20.0
-    product["wait_temp"]["timeout_s"] = 10
+    product["wait_temp"].update(enabled=True, timeout_s=10)     # skipped at DDMI Cal by default
     record = run(station_cfg, product, station=station)
     assert record["result"] == "FAIL"
     assert any(f.startswith("Wait_Temp") for f in record["failing_items"])
@@ -441,3 +441,13 @@ def test_failed_ddmi_item_is_run_once_more(station_cfg, product):
     lines = (Path(station_cfg["results_dir"]) / record["log_file"]).read_text()
     assert lines.count("RX Cal: Rxp_Slope_CH1") == 1    # one retry, not a loop
     assert lines.count("W_DRXPCal written") == 2
+
+
+def test_tops_setpoint_is_written_after_the_scan_reset(station_cfg, product):
+    """MPD Monitor.vi V6.8 last frame (error wire): Vtops, tops_off, 2 s, W_Reset, 10 s, setpoint."""
+    record = run(station_cfg, product)
+    lines = (Path(station_cfg["results_dir"]) / record["log_file"]).read_text().splitlines()
+    first_reset = next(i for i, l in enumerate(lines) if "I2C W W_Reset" in l)
+    setpoint = next(i for i, l in enumerate(lines) if "I2C W tops_setpoint" in l)
+    assert setpoint > first_reset
+    assert not any("Wait_Temp" in l for l in lines)          # skipped at DDMI Cal

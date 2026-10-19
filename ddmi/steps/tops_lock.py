@@ -43,6 +43,7 @@ def relock(ctx: RunContext, where: str, final: bool = False) -> None:
     module, cfg = ctx.module, ctx.product["tops_lock"]
     if module.dry_run:
         return
+    ctx.sleep(cfg["settle_s"])        # e.g. tops_setpoint was just written
     bad = unlocked_lanes(ctx)
     if not bad:
         ctx.log(f"TOPS lock {where}: all lanes locked")
