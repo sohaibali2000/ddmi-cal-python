@@ -1,4 +1,6 @@
-# AWS register map (build map Section 5). Multi-byte values are big-endian.
+# AWS register map (build map Section 5, IIC.vi V6.8). Byte order is set per register by fmt:
+# u16/u16_array are big-endian (standard CMIS, tops_setpoint), u16le* and f32le_array are
+# little-endian (raw monitors on F3h, calibration floats on EB/EC/ED) - confirmed on hardware.
 #
 # conf: STD        standard CMIS, safe
 #       CODE       decoded from IIC.vi, high confidence
@@ -51,8 +53,7 @@ registers:
   tops_off:       {page: 0xE8, byte: 0xCC, len: 16, fmt: volt_array, full_scale: 5.0, conf: CODE}
   tops_room:      {page: 0xE8, byte: 0xAC, len: 16, fmt: volt_array, full_scale: 5.0, conf: CODE}
 
-  # --- calibration storage: 4 slopes then 4 offsets per page, 4 bytes per value ---
-  # UNVERIFIED: float32 and big-endian are assumptions, and so is "EC = CH1-4, ED = CH5-8".
+  # --- calibration storage: 4 offsets then 4 slopes per page, float32 little-endian ---
   # Read from a calibrated AOI module (2026-10-14): float32 LITTLE-endian, the 4 OFFSETS
   # come first and then the 4 slopes (the build map had slope/offset the other way round);
   # EC holds CH1-4, ED CH5-8. Confirmed for TX and VCC: offset + slope * raw monitor

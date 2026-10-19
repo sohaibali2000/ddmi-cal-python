@@ -16,7 +16,8 @@ mpd_scan:
   # TXMON on the real module refreshes only every ~200 ms and the heater needs time to
   # settle: read it straight after a Vtops write and the curve comes out as stale steps.
   start_settle_s: 1.0              # at the first voltage, before the sweep
-  step_settle_s: 0.3               # after every Vtops step (VERIFY: "Delay Time (s)" in MPD Monitor.vi)
+  step_settle_s: 0.3               # after every Vtops step. V6.8 waits 50 ms + its slow I2C; this
+                                   # station's TXMON refreshes every ~200 ms (50 ms gave stepped curves)
   op_point_settle_s: 1.0           # after moving to each operating point, before TXMON/MPD_OUT are read
   # MPD Monitor.vi V6.8 constants
   start_vtops: 1.0                 # first frame: every lane to 1.0 V (loops off, tops_off 0)
@@ -24,10 +25,10 @@ mpd_scan:
   write_clamp_v: [0.2, 3.0]        # Vtops / tops_off coerced before the final write
   end_wait_s: 2.0                  # before W_Reset
   after_reset_wait_s: 10.0
-  # The fraction array as it appears in the LabVIEW code. Read as 1 - x of the peak it
-  # gives the operating points at 35 / 44 / 50 / 56 % of peak (4.5 / 3.5 / 3.0 / 2.5 dB
-  # below it). VERIFY against Peak Search.vi; the other modes are x_of_peak, x_of_span,
-  # one_minus_x_of_span.
+  # MPD Monitor.vi V6.8 constant [0.65, 0.56, 0.50, 0.44], used as (1 - x) x peak: the
+  # operating points at 35 / 44 / 50 / 56 % of peak (4.5 / 3.5 / 3.0 / 2.5 dB below it),
+  # each taken at the closest sweep step on the first rising edge. The resulting
+  # TXMON/MPD_OUT ratios rise toward the peak, as in the production CSV.
   op_point_fractions: [0.65, 0.56, 0.50, 0.44]
   op_point_mode: one_minus_x_of_peak
   # Tops_Mid = mean of the voltages at the 3.5 dB (44 %) and 3.0 dB (50 %) points,
@@ -102,7 +103,7 @@ rx_cal:
   check_dbm: -6
   # Attenuator wavelength per lane (the AT4308 is calibrated at 1270/1290/1310/1330).
   wavelengths_nm: [1270, 1290, 1310, 1330, 1270, 1290, 1310, 1330]
-  settle_s: 1.0                    # VERIFY (computed delay in code)
+  settle_s: 1.0                    # VERIFY: V6.8 uses a station value x 2 (not in the V6.8 files); measure RSSI settling
 
 wait_temp:
   # V6.8 skips Wait_Temp at the DDMI Cal station (no temperature controller; the Wait_Temp
@@ -140,7 +141,7 @@ limits:                            # replaced by the MES spec when online
   tx_disable_dbm: [-60, -16]
   dtxp_db: [-0.5, 0.5]
   rx_check_error_db: [-0.5, 0.5]
-  rx_slope: [5, 30]                # applied to Rxp_Slope. VERIFY against real data: depends on the RSSI units
+  rx_slope: [5, 30]                # Rxp_Slope; same as the production CSV MAX/MIN (our slopes ~18-21)
   dvcc_v: [-0.033, 0.033]
   ddmi_temp_c: [30, 60]
   tx_loss_warn_db: 3.5

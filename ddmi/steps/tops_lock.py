@@ -43,6 +43,18 @@ def relock(ctx: RunContext, where: str, final: bool = False) -> None:
     module, cfg = ctx.module, ctx.product["tops_lock"]
     if module.dry_run:
         return
+    try:
+        _relock(ctx, where, final, cfg)
+    finally:
+        if final:
+            # Python-only safety net: report how often each lane needed it, for FA
+            counts = ctx.meta.get("tops_relock", {})
+            for ch in ctx.channels:
+                ctx.results.add("TOPS_Relock", ch, counts.get(ch, 0))
+
+
+def _relock(ctx: RunContext, where: str, final: bool, cfg: dict) -> None:
+    module = ctx.module
     ctx.sleep(cfg["settle_s"])        # e.g. tops_setpoint was just written
     bad = unlocked_lanes(ctx)
     if not bad:
@@ -51,7 +63,10 @@ def relock(ctx: RunContext, where: str, final: bool = False) -> None:
     ctx.log(f"TOPS lock {where}: not locked - " + "; ".join(f"CH{ch} {text}" for ch, text in bad.items()))
     lanes = ctx.meta.get("mpd_scan", {}).get("lanes", {})
     toppid = ctx.pre_run("W_TOPPID", "toppid_on")
+    counts = ctx.meta.setdefault("tops_relock", {})
     for attempt in range(1, cfg["attempts"] + 1):
+        for ch in bad:
+            counts[ch] = counts.get(ch, 0) + 1
         current = module.read("Vtops")
         mids = [(lanes.get(ch) or {}).get("mid_v") or current[ch - 1] for ch in ctx.channels]
         module.write_value("W_TOPPID", "toppid_off")

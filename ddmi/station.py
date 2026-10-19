@@ -43,7 +43,7 @@ def build_station(station_cfg: dict, *, slot: int = 1, sim_sn: str = "", fault: 
     regmap = load_regmap()
 
     if is_sim(station_cfg):
-        sim = SimModule(regmap, sn=sim_sn or "SIM000001", fault=fault)
+        sim = SimModule(regmap, sn=sim_sn or "SIM000001", fault=fault, seed=slot)   # repeatable runs
         att = station_cfg["attenuator"]
         sim_bench = SimBench(sim, seed=slot, lane_channels=att.get("lane_channels"),
                              min_att_db=att.get("min_att_db", 0.0))

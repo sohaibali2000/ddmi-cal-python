@@ -182,6 +182,51 @@ def cmd_calcheck(args) -> int:
     return 0
 
 
+def cmd_regcheck(args) -> int:
+    """Read-only: on a module LabVIEW V6.8 has just finished, read every register the run
+    writes but whose address/value is not confirmed yet, and compare it with what V6.8
+    leaves behind (ShowPF for AWS DDMI CAL; Adjust Power)."""
+    from .hw.i2c_usbiss import UsbIssBus
+    from .hw.module import Module
+    from .hw.ports import resolve_port
+    from .hw.regmap import load_regmap
+
+    # Adjust Power (Item_Test.vi V6.8, LC-2*FR4): default [280, 280, 410, 450], then +20 / -30
+    allowed = [{d - 30, d, d + 20} for d in (280, 280, 410, 450)]
+    regmap = load_regmap()
+    with UsbIssBus(resolve_port(args.port)) as bus:
+        module = Module(bus, regmap, is_sim=False)
+        try:
+            sn = module.read("R_Information")[18:34].strip()
+            values = {name: module.read(name) for name in (
+                "TempOffFunc", "TestMode", "DSP_TestMode", "DSP_OperatingMode", "AWS_Test_Mode",
+                "W_IBiasPID", "W_TOPPID", "W_Bias_setpoint", "W_Bias_setpointHT", "W_Bias_setpointLT")}
+        finally:
+            bus.write(0, 0x7F, bytes([0]))
+    rt, ht, lt = values["W_Bias_setpoint"], values["W_Bias_setpointHT"], values["W_Bias_setpointLT"]
+    checks = [
+        ("TempOffFunc  FEh:95h", values["TempOffFunc"], "59 (ShowPF disables temp offset)", values["TempOffFunc"] == 59),
+        ("TestMode     EEh:83h", values["TestMode"], "0xCC (ShowPF exits test mode)", values["TestMode"] == 0xCC),
+        ("DSP_TestMode CFh:81h", values["DSP_TestMode"], "0 (ShowPF checks it)", values["DSP_TestMode"] == 0),
+        ("DSP_OpMode   CFh:86h", values["DSP_OperatingMode"], "0 (ShowPF checks it)", values["DSP_OperatingMode"] == 0),
+        ("AWS_Test_Mode EEh:80h", values["AWS_Test_Mode"], "0 (Set_Temp, DDMI CAL, AWS)", values["AWS_Test_Mode"] == 0),
+        ("Bias_setpoint RT E9h:D2h", rt, "280/280/410/450 +20 or -30",
+         all(v in a for v, a in zip(rt, allowed))),
+        ("Bias_setpoint HT E9h:B0h", ht, "same as RT (Adjust Power writes all three)", ht == rt),
+        ("Bias_setpoint LT E9h:B8h", lt, "same as RT", lt == rt),
+        ("W_IBiasPID   E9h:D0h", values["W_IBiasPID"], "information only (TX cal restores 15)", None),
+        ("W_TOPPID     E8h:80h", values["W_TOPPID"], "information only", None),
+    ]
+    print(f"Module {sn}: registers after a LabVIEW V6.8 run (read only)\n")
+    for label, value, expect, ok in checks:
+        mark = "    " if ok is None else ("OK  " if ok else "DIFF")
+        print(f"  {mark} {label:26} = {str(value):24} expected {expect}")
+    diffs = [label for label, _, _, ok in checks if ok is False]
+    print("\nAll match - these registers can be marked HW." if not diffs else
+          f"\n{len(diffs)} differ - do not mark them HW yet: {', '.join(diffs)}")
+    return 0 if not diffs else 1
+
+
 def cmd_restore(args) -> int:
     """Write a module register backup (taken by every run before its first write) back."""
     import json
@@ -274,6 +319,10 @@ def main(argv=None) -> int:
     calcheck = sub.add_parser("calcheck", help="read-only: work out how the module stores slope/offset")
     calcheck.add_argument("--port", default="usb-sn:00071351", help="DUT USB-ISS (COMx or usb-sn:...)")
     calcheck.set_defaults(func=cmd_calcheck)
+
+    regcheck = sub.add_parser("regcheck", help="read-only: check unconfirmed registers on a module LabVIEW just finished")
+    regcheck.add_argument("--port", default="usb-sn:00071345", help="DUT USB-ISS (COMx or usb-sn:...)")
+    regcheck.set_defaults(func=cmd_regcheck)
 
     rest = sub.add_parser("restore", help="write a module register backup back")
     rest.add_argument("--file", required=True, help="backup file from results/backups")

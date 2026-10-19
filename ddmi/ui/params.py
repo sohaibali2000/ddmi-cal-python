@@ -22,6 +22,7 @@ TX_ROWS = [
     "Bias_setpoint", "Tops_Setpoint", "Tops_Mid(V)", "Tops_off(V)", "Tx_Disable(dBm)",
     "Txp_Slope", "Txp_Offset",
     "TxP(dBm)", "DDMI_TxP(dBm)", "dTxP(dB)",
+    "TOPS_Relock",                  # Python-only: relock attempts the lane needed (0 = never)
 ]
 RX_ROWS = [
     *(f"RSSI@{p:g}" for p in _rx["points_dbm"]),
