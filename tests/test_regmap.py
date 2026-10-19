@@ -100,7 +100,8 @@ def test_confidence_flags(regmap):
     assert regmap["W_Reset"].verified and regmap["Vtops"].verified
     assert regmap["DTXPCal_A"].verified and regmap["VccCal"].verified     # confirmed on hardware
     assert regmap["DRXPCal_A"].verified and regmap["DRXPCal_B"].verified
-    for name in ("IBias", "W_IBiasPID", "W_TOPPID",
+    assert regmap["IBias"].verified                 # x100 scaling: IIC.vi V6.8 and hardware
+    for name in ("W_IBiasPID", "W_TOPPID",
                  "AWS_Test_Mode", "TestMode", "DSP_TestMode", "DSP_OperatingMode", "TempOffFunc"):
         assert not regmap[name].verified, name
 
@@ -108,8 +109,8 @@ def test_confidence_flags(regmap):
 def test_hardware_refuses_unverified_writes(regmap):
     bus = FakeBus()
     module = Module(bus, regmap, is_sim=False)
-    with pytest.raises(UnverifiedWriteError, match="IBias"):
-        module.write("IBias", [60] * 4)
+    with pytest.raises(UnverifiedWriteError, match="W_IBiasPID"):
+        module.write("W_IBiasPID", 0)
     assert bus.writes == []
     module.write("W_TXDis", 0xFF)                      # verified registers still go through
     assert bus.writes == [(0x10, 0x82, b"\xff")]
@@ -137,7 +138,7 @@ def test_dry_run_logs_but_sends_nothing(regmap):
 
 def test_dry_run_logs_unverified_writes_instead_of_refusing(regmap):
     bus, lines = FakeBus(), []
-    Module(bus, regmap, is_sim=False, dry_run=True, log=lines.append).write("IBias", [60] * 4)
+    Module(bus, regmap, is_sim=False, dry_run=True, log=lines.append).write("W_IBiasPID", 0)
     assert bus.writes == [] and "UNVERIFIED" in lines[0]
 
 
