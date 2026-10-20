@@ -74,8 +74,10 @@ registers:
   # --- mode registers: page/byte order unconfirmed (build map 5.5) ---
   AWS_Test_Mode:      {page: 0xEE, byte: 0x80, len: 1, fmt: u8, conf: HW}   # V6.8 DDMI CAL writes 0
   TestMode:           {page: 0xEE, byte: 0x83, len: 1, fmt: u8, conf: HW}   # 0xCC to exit
-  DSP_TestMode:       {page: 0xCF, byte: 0x81, len: 1, fmt: u8, conf: HW}   # W_Debug_AWS = 1, W_Nomal_AWS = 0
-  DSP_OperatingMode:  {page: 0xCF, byte: 0x86, len: 1, fmt: u8, conf: HW}   # W_Daul_AWS = 5, W_Mission_AWS = 0
+  DSP_TestMode:       {page: 0xCF, byte: 0x81, len: 1, fmt: u8, conf: HW}   # IIC.vi: W_Debug_AWS = 63, W_Nomal_AWS = 0
+  DSP_OperatingMode:  {page: 0xCF, byte: 0x86, len: 1, fmt: u8, conf: HW}   # IIC.vi: W_Daul_AWS = 64, W_Mission_AWS = 0
+  # IIC.vi V6.8 W_Daul_AWS / W_Mission_AWS also write CFh:80h = 63 right after CFh:86h
+  DSP_Command:        {page: 0xCF, byte: 0x80, len: 1, fmt: u8, conf: CODE}
   # IIC.vi V6.8 "Disable/Read Temp Off Func", value 59: FEh 0x98 for DUT type "Oracle(AWS DUT)"
   # (material 400454000050 only), FEh 0x95 for every other type - incl. AWS 2xFR4 (400454000030).
   TempOffFunc:        {page: 0xFE, byte: 0x95, len: 1, fmt: u8, conf: HW}
@@ -96,8 +98,9 @@ values:
   txdis_all_on: 0x00             # IIC.vi W_TXDis "Channel 8"
   txdis_all_off: 0xFF            # IIC.vi W_TXDis "Channel 9"
   test_mode_exit: 0xCC
-  dsp_debug: 1
+  dsp_debug: 63                  # IIC.vi V6.8 W_Debug_AWS (CFh:81h)
   dsp_normal: 0
-  dsp_dual: 5
+  dsp_dual: 64                   # IIC.vi V6.8 W_Daul_AWS (CFh:86h)
+  dsp_apply: 63                  # IIC.vi V6.8 W_Daul_AWS / W_Mission_AWS: CFh:80h after CFh:86h
   dsp_mission: 0
   temp_off_func_disable: 59      # 800G_TRx_Test.vi V6.8 ShowPF (AWS, DDMI CAL)

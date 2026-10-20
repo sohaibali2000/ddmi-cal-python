@@ -92,7 +92,7 @@ def test_v68_showpf_cleanup(station_cfg, product):
     station = build_station(station_cfg, sim_sn="AWS0001")
     run(station_cfg, product, station=station)
     assert station.sim_module.modes == {"AWS_Test_Mode": 0, "TestMode": 0xCC, "DSP_TestMode": 0,
-                                        "DSP_OperatingMode": 0, "TempOffFunc": 59}
+                                        "DSP_OperatingMode": 0, "DSP_Command": 63, "TempOffFunc": 59}
 
 
 def test_registers_are_backed_up_before_the_run_and_can_be_restored(station_cfg, product):
@@ -615,3 +615,14 @@ def test_save_data_is_tried_three_times():
 
     out = run_with_mes(Flaky(), "SN1", "PN", "DDMI Cal", lambda spec: {"result": "PASS", "sn": "SN1"}, lambda _t: None)
     assert Flaky.calls == 3 and out["saved"] and out["checked_out"]
+
+
+def test_vcc_cal_dsp_writes_follow_iic_vi(station_cfg, product):
+    """IIC.vi V6.8: W_Debug_AWS CFh:81h = 63; W_Daul_AWS CFh:86h = 64 then CFh:80h = 63;
+    W_Nomal_AWS CFh:81h = 0; W_Mission_AWS CFh:86h = 0 then CFh:80h = 63."""
+    record = run(station_cfg, product)
+    lines = (Path(station_cfg["results_dir"]) / record["log_file"]).read_text().splitlines()
+    dsp = [l.split("I2C W ")[1].split(" [")[0] + "=" + l.rsplit("-> ", 1)[1]
+           for l in lines if "I2C W DSP_" in l]
+    assert dsp[:6] == ["DSP_TestMode=3f", "DSP_OperatingMode=40", "DSP_Command=3f",
+                       "DSP_TestMode=00", "DSP_OperatingMode=00", "DSP_Command=3f"]

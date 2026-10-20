@@ -9,8 +9,11 @@ from .startup import auto_adjust_vcc
 
 def vcc_cal(ctx: RunContext) -> None:
     cfg, module = ctx.product["vcc"], ctx.module
-    module.write_value("DSP_TestMode", "dsp_debug")           # W_Debug_AWS = 1
-    module.write_value("DSP_OperatingMode", "dsp_dual")       # W_Daul_AWS = 5
+    # DDMI_Cal.vi V6.8 Vcc / Cal (AWS): W_Debug_AWS, W_Daul_AWS. IIC.vi: CFh:81h = 63;
+    # CFh:86h = 64, then CFh:80h = 63
+    module.write_value("DSP_TestMode", "dsp_debug")
+    module.write_value("DSP_OperatingMode", "dsp_dual")
+    module.write_value("DSP_Command", "dsp_apply")
     old_slope, old_offset = module.read_vcc_cal()
     try:
         module.write_vcc_cal(0.0, 0.0)
@@ -42,8 +45,10 @@ def vcc_cal(ctx: RunContext) -> None:
             ctx.log(f"W_VccCal written: slope {slope:.4f}, offset {offset:.1f}")
     finally:
         # Lock again: W_Nomal_AWS / W_Mission_AWS, i.e. the values read before the run (0 / 0)
+        # W_Nomal_AWS, W_Mission_AWS: CFh:81h = 0; CFh:86h = 0, then CFh:80h = 63
         module.write("DSP_TestMode", ctx.pre_run("DSP_TestMode", "dsp_normal"))
         module.write("DSP_OperatingMode", ctx.pre_run("DSP_OperatingMode", "dsp_mission"))
+        module.write_value("DSP_Command", "dsp_apply")
 
 
 def vcc_check(ctx: RunContext) -> None:

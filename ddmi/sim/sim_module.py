@@ -62,7 +62,7 @@ class SimModule:
         self.rx_cal = ([1.0] * LANES, [0.0] * LANES)
         self.vcc_cal = (25.0, 0.0)      # deliberately off, so the VCC cal has work to do
         self.modes = {"AWS_Test_Mode": 0, "TestMode": 0, "DSP_TestMode": 0,
-                      "DSP_OperatingMode": 0, "TempOffFunc": 1}
+                      "DSP_OperatingMode": 0, "DSP_Command": 0, "TempOffFunc": 1}
         self.resets = 0
 
         # set by the bench
