@@ -560,3 +560,16 @@ def test_vcc_check_reads_the_module_voltage_after_r_dvcc(station_cfg, product):
     start = next(n for n, l in enumerate(lines) if "W_VccCal written" in l)
     check = [l for l in lines[start:] if "R_DVCC" in l or "VCC check" in l]
     assert check and "R_DVCC" in check[0]
+
+
+def test_showpf_order_and_tries_follow_v68(station_cfg, product):
+    """ShowPF (AWS DDMI CAL): Temp Off Func 59, 2 s, read; then TestMode 0xCC, W_Reset, 10 s,
+    read TestMode and the DSP modes - read only after the reset."""
+    record = run(station_cfg, product)
+    lines = (Path(station_cfg["results_dir"]) / record["log_file"]).read_text().splitlines()
+    start = next(n for n, l in enumerate(lines) if "=== Final ===" in l)
+    ops = [l.split("I2C ")[1].split(" [")[0] for l in lines[start:] if "I2C W " in l or "I2C R " in l]
+    ops = [o for o in ops if "Password" not in o]        # the driver re-unlocks after a reset
+    i = ops.index("W TestMode")
+    assert ops[i:i + 5] == ["W TestMode", "W W_Reset", "R TestMode", "R DSP_OperatingMode", "R DSP_TestMode"]
+    assert ops.index("W TempOffFunc") < i and ops[ops.index("W TempOffFunc") + 1] == "R TempOffFunc"
