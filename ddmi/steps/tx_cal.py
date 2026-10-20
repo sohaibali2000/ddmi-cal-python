@@ -1,8 +1,8 @@
-"""TX calibration and check (build map 6.6, 6.7): DDMI_Cal.vi frame 2."""
+"""TX calibration and check: DDMI_Cal.vi V6.8 "Txp" (Cal / Check), Item_Test.vi "DDMI_Adjust_TX"."""
 from __future__ import annotations
 
 from ..calc.fit import two_point_fit
-from ..calc.units import dbm_to_lin, lin_to_dbm
+from ..calc.units import dbm_to_lin_exact, lin_to_dbm
 from ..runctx import RunContext
 from .tops_lock import relock
 
@@ -22,7 +22,8 @@ def tx_cal(ctx: RunContext) -> None:
             power = ctx.true_tx_powers()
             txmon = module.read("R_TXMON")
             for ch in ctx.channels:
-                points[ch].append((txmon[ch - 1], dbm_to_lin(power[ch])))
+                # DDMI_Cal.vi: x / 10, 10^x, x 10000 - not rounded
+                points[ch].append((txmon[ch - 1], dbm_to_lin_exact(power[ch])))
             ctx.log(f"bias {bias} mA: power {[round(power[ch], 2) for ch in ctx.channels]} dBm, TXMON {txmon}")
 
         old_slopes, old_offsets = module.read_cal("DTXPCal")
@@ -57,8 +58,11 @@ def tx_cal(ctx: RunContext) -> None:
         module.write_cal("DTXPCal", slopes, offsets)
         ctx.log("W_DTXPCal written (8 slope/offset pairs)")
     finally:
-        module.write("IBias", saved_bias)
+        # DDMI_Cal.vi "Txp" / Cal, sequence 1: W_IBiasPID, W_IBias (the saved bias), W_Reset, 10 s.
+        # V6.8 writes 16430 to W_IBiasPID here for LC-2*FR4; a module the LabVIEW station
+        # finished reads 15 there, so the value read before the run is written back.
         module.write("W_IBiasPID", ctx.pre_run("W_IBiasPID", "ibiaspid_restore"))
+        module.write("IBias", saved_bias)
         module.write_value("W_Reset", "reset")
         ctx.log(f"bias restored, W_Reset, wait {cfg['after_reset_wait_s']} s")
     ctx.sleep(cfg["after_reset_wait_s"])
@@ -78,7 +82,12 @@ def tx_check(ctx: RunContext) -> None:
         ctx.results.add("DDMI_TxP(dBm)", ch, round(ddmi_dbm, 2))
         ctx.results.add("dTxP(dB)", ch, round(power[ch] - ddmi_dbm, 2))
     ctx.log(f"TX check: dTxP {[ctx.results.value('dTxP(dB)', ch) for ch in ctx.channels]} dB")
-    # DDMI_Adjust_TX (V6.8) reports the bias setpoint: one per laser, lanes n and n+4 share it
+    # DDMI_Adjust_TX (V6.8) ends by reading R_Bias_setpoint (one per laser, lanes n and n+4
+    # share it) and R_tops setpoint for the record. A lane the scan could not set keeps its
+    # failed (empty) Tops_Setpoint.
     bias = module.read("R_Bias_setpoint")
+    tops_sp = module.read("tops_setpoint")
     for ch in ctx.channels:
         ctx.results.add("Bias_setpoint", ch, bias[(ch - 1) % len(bias)])
+        if ctx.results.value("Tops_Setpoint", ch) is not None:
+            ctx.results.add("Tops_Setpoint", ch, tops_sp[ch - 1])

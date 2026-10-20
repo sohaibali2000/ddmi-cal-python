@@ -573,3 +573,15 @@ def test_showpf_order_and_tries_follow_v68(station_cfg, product):
     i = ops.index("W TestMode")
     assert ops[i:i + 5] == ["W TestMode", "W W_Reset", "R TestMode", "R DSP_OperatingMode", "R DSP_TestMode"]
     assert ops.index("W TempOffFunc") < i and ops[ops.index("W TempOffFunc") + 1] == "R TempOffFunc"
+
+
+def test_tx_cal_restore_order_and_record_read_back(station_cfg, product):
+    """DDMI_Cal.vi Txp / Cal: W_IBiasPID, W_IBias, W_Reset; DDMI_Adjust_TX records the bias
+    and tops setpoints read from the module."""
+    station = build_station(station_cfg, sim_sn="AWS0001")
+    record = run(station_cfg, product, station=station)
+    lines = (Path(station_cfg["results_dir"]) / record["log_file"]).read_text().splitlines()
+    i = next(n for n, l in enumerate(lines) if "W_DTXPCal written" in l)
+    ops = [l.split("I2C W ")[1].split(" [")[0] for l in lines[i:] if "I2C W " in l][:3]
+    assert ops == ["W_IBiasPID", "IBias", "W_Reset"]
+    assert values(record, "Tops_Setpoint") == list(station.sim_module.setpoint)
