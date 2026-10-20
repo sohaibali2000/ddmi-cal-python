@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DDMI Cal V6.8 Code Logic</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm 16mm 14mm; }
+  body { font-family: "Segoe UI", Arial, sans-serif; font-size: 10pt; color: #1b1f24; line-height: 1.42; }
+  h1 { font-size: 22pt; color: #12355b; margin: 0 0 4pt; }
+  h2 { font-size: 14.5pt; color: #12355b; border-bottom: 2px solid #2b6cb0; padding-bottom: 3pt; margin: 20pt 0 8pt; page-break-after: avoid; }
+  h3 { font-size: 11.5pt; color: #12355b; margin: 12pt 0 5pt; page-break-after: avoid; }
+  p { margin: 4pt 0 6pt; }
+  table { border-collapse: collapse; width: 100%; margin: 5pt 0 9pt; font-size: 8.8pt; page-break-inside: auto; }
+  tr { page-break-inside: avoid; }
+  th { background: #e6eef7; text-align: left; font-weight: 600; }
+  th, td { border: 1px solid #b9c6d3; padding: 3pt 5pt; vertical-align: top; }
+  code { font-family: Consolas, "Courier New", monospace; font-size: 8.8pt; background: #f2f4f7; padding: 0 2pt; border-radius: 2px; }
+  .sub { color: #4a5868; font-size: 10.5pt; }
+  .note { background: #fff8e1; border-left: 4px solid #e0a800; padding: 5pt 8pt; margin: 6pt 0 9pt; }
+  .ok { background: #eaf6ec; border-left: 4px solid #2f8f46; padding: 5pt 8pt; margin: 6pt 0 9pt; }
+  .flow { border: 1px solid #b9c6d3; background: #f7fafd; padding: 6pt 9pt; margin: 6pt 0 10pt; font-family: Consolas, monospace; font-size: 8.8pt; white-space: pre; line-height: 1.35; }
+  .toc li { margin: 1pt 0; }
+  .fig { text-align: center; margin: 8pt 0 12pt; page-break-inside: avoid; }
+  .fig img { max-width: 100%; max-height: 225mm; border: 1px solid #c9d3dd; }
+  .fig .cap { font-size: 8.5pt; color: #4a5868; margin-top: 3pt; }
+  .pb { page-break-before: always; }
+  .small { font-size: 8.5pt; color: #4a5868; }
+  ul, ol { margin: 3pt 0 6pt 16pt; padding: 0; }
+  li { margin: 1.5pt 0; }
+</style>
+</head>
+<body>
+
+<h1>DDMI Cal V6.8: how the code works</h1>
+<p class="sub">AWS 800G OSFP 2&times;FR4 &middot; LabVIEW station <b>800G_DDMI_Cal V6.8</b> (dated 2026-04-30 in <code>Cimes_Interface.vi</code>)<br>
+Process order, every step, delays, registers, limits and data storage &mdash; read from the VI source</p>
+
+<div class="ok"><b>How this was produced.</b> Every value in this document was read from the V6.8 VIs themselves:
+block-diagram constants, case names, enum lists and the wiring between nodes (which output feeds which input, and
+the error-wire order that sets the run order inside a frame). The <b>LabVIEW Study Tool</b> (<code>lvtool</code>)
+was used to list every string array and step list, collect the change notes and print the diagrams of the main VIs
+(figures at the end). Where hardware behaviour was checked on a real AWS 2&times;FR4 module, it is marked
+<b>[HW]</b>. Items not yet confirmed are marked <b>&#9888;</b>.</div>
+
+<h3>Contents</h3>
+<ol class="toc">
+  <li>The big picture</li>
+  <li>Before the test: MES wrapper (Cimes_Interface.vi)</li>
+  <li>The state machine and its run order</li>
+  <li>Start-up states: Reini, Set_Temp, Read SN, Read_Spec, Wait_Temp, VCC</li>
+  <li>Scan_MPD state: MPD scan, Adjust Power, Scan_Disable</li>
+  <li>DDMI_CAL state: TX, RX, VCC, temperature</li>
+  <li>ShowPF, Move_out and MES after the test</li>
+  <li>Every delay in one place</li>
+  <li>Every register the station uses (AWS)</li>
+  <li>Test items and limits (Step_To_Item.vi)</li>
+  <li>What changes in the module, and where data is stored</li>
+  <li>Station tools: Tx Loss and RX tables</li>
+  <li>Calculations</li>
+  <li>Open items</li>
+  <li>Sub-VIs: MES, records, instruments, RX table, Peak Search</li>
+  <li>Appendix: enums, version history, diagram figures</li>
+</ol>
+
+<h2>1. The big picture</h2>
+<p>The run has three layers:</p>
+<ol>
+  <li><b>MES wrapper</b> &mdash; <code>Cimes_Interface.vi</code> (the real top level): checks the module in, downloads the
+      limits, starts the test VI, uploads the result and checks the module out.</li>
+  <li><b>Test state machine</b> &mdash; <code>800G_TRx_Test.vi</code>: a while loop around a case structure; each case is a
+      named state (enum <code>Main_Step</code>), and a queue (array) of states decides what runs next.</li>
+  <li><b>Worker VIs</b>: <code>800G SIP Tx MPD Monitor.vi</code> (MPD scan), <code>Item_Test.vi</code> (Adjust Power,
+      Scan_Disable, DDMI_Adjust_TX, DDMI_RXP, DDMI_VCC, DDMI_Temp), <code>DDMI_Cal.vi</code> (the TX / RX / VCC / temperature
+      calibration maths and register writes), <code>Auto Adjust Vcc.vi</code>, <code>Peak Search.vi</code>, and
+      <code>IIC.vi</code> (every module register access, by command enum).</li>
+</ol>
+
+<div class="flow">MES   Pcs_Check_IN -> Read_Date -> Read_Spec -> Read_Test_Times -> (TOOL)
+        |
+State Reini -> Set_Temp -> Read SN -> Read_Spec -> Wait_Temp -> VCC -> StartTest
+        |
+StartTest queues:  Scan_MPD -> DDMI_CAL -> ShowPF -> Move_out -> Stop
+        |
+Scan_MPD   (outer loop, up to 2 passes; stops when Scan_Disable passes)
+   |- MPD Monitor scan   (inner loop, up to 2 scans; stops when the scan passes)
+   |- Adjust Power       (first pass only, and only if Only_Test = False)
+   '- Scan_Disable       (TX-disable tuning, all lanes together)
+DDMI_CAL   DDMI_Adjust_TX -> DDMI_RXP -> DDMI_VCC -> DDMI_Temp
+           (each item: calibrate + check, re-run once if its check fails)
+ShowPF     temp-offset off, exit test mode, reset, DSP-mode check, PASS/FAIL
+        |
+MES   Save_Data -> Pcs_Check_OUT (only if Save_Data succeeded)</div>
+
+<p><b>Typical time.</b> The production time study (<code>800G AWS 2FR4&amp;DR8+ DDMI&#21644;TP2&amp;3&#35519;&#25972;&#37007;&#36655;</code>) gives
+568 s of program time for <b>two</b> modules, 5 min 19 s per module including about 35 s of manual handling. Most of
+the time is I&sup2;C access (IIC.vi waits 500 ms after a page switch for many reads), not the fixed waits.</p>
+
+<h2>2. Before the test: MES wrapper (Cimes_Interface.vi)</h2>
+<p><code>Cimes_Interface.vi</code> calls <code>Cimes_All.vi</code> once per action. Since V6.2 the MES actions use the web
+(SOAP) interface (<code>Mes Interface.vi</code> / <code>Get Soap content.vi</code>); the server address is in
+<code>MesServer Address.txt</code>, the station name in <code>MES Station Name.txt</code>.</p>
+<table>
+<tr><th>#</th><th>Action</th><th>What it does</th><th>If it fails</th></tr>
+<tr><td>1</td><td>Pcs_Check_IN (SN)</td><td>Is this SN at this station in its route?</td><td>Test does not start</td></tr>
+<tr><td>2</td><td>Read_Date</td><td>Server date/time for the record</td><td>&ndash;</td></tr>
+<tr><td>3</td><td>Read_Spec</td><td>Low/High limits for this PN and station; they override the limits built into Step_To_Item.vi</td><td>Test does not start</td></tr>
+<tr><td>4</td><td>Read_Test_Times</td><td>How often this SN has been tested</td><td>&ndash;</td></tr>
+<tr><td>5</td><td>TOOL</td><td>Fixture check, when enabled</td><td>&ndash;</td></tr>
+</table>
+<p>The wrapper and the test VI exchange state through <code>PSM4_State_FGV*.vi</code>. Since 2026-03-19 an upload is retried up to
+3 times; <b>Pcs_Check_OUT runs only after Save_Data succeeds</b>.</p>
+<p><b>DUT type by material number</b> (selected in Cimes from the PN lists in the program folder):
+<code>AWS PN.txt</code> = 400454000023/24/30/31/35/36/39/50, <code>Oracle(AWS DUT) PN.txt</code> = 400454000050.
+AWS 2&times;FR4 is material <b>400454000030</b> (change list 2025-08-12), i.e. type AWS, not Oracle.</p>
+
+<h2>3. The state machine and its run order</h2>
+<p>The order is not visible on one diagram; it is held in enum-array constants that are pushed onto the state queue.
+Decoded from <code>800G_TRx_Test.vi</code>:</p>
+<table>
+<tr><th>Where</th><th>Array constant (station "DDMI Cal" / "DDMI CAL")</th></tr>
+<tr><td>Start of a test (queued by the Start event, also rebuilt in ShowPF frame 3 for the next module)</td><td>Start event: <code>Reini, Set_Temp, Read SN, Move_in (disabled), Read_Spec, Wait_Temp, VCC, StartTest</code>. ShowPF frame 3 holds a shorter list <code>Set_Temp, VCC, Read_Spec, Wait_Temp, StartTest</code> for the next temperature.</td></tr>
+<tr><td>StartTest, case "DDMI CAL,DDMI Cal"</td><td><code>Scan_MPD, DDMI_CAL, ShowPF, Move_out, Stop</code></td></tr>
+<tr><td>DDMI_CAL state, item array</td><td><code>DDMI_Adjust_TX, DDMI_RXP, DDMI_VCC, DDMI_Temp</code> (shown on screen as TXP CAL &middot; RXP CAL &middot; VCC CAL &middot; DDMI_Temp)</td></tr>
+<tr><td>Set_Temp, DDMI CAL / Siph, "Step all"</td><td>item numbers [14, 11, 15, 18, 17, 29] = Scan_Disable, DDMI_Adjust_TX, DDMI_RXP, DDMI_VCC, DDMI_Temp, TXP_MPDOut: the result groups shown and uploaded</td></tr>
+</table>
+
+<h2>4. Start-up states</h2>
+<h3>4.1 Reini</h3>
+<ul>
+  <li>Opens the attenuator units (2&times;FR4: one AT4208, channel 1 &rarr; RX1 = CH1&ndash;4, channel 2 &rarr; RX2 = CH5&ndash;8) and sets them to <b>1.0 dB</b>.</li>
+  <li>DCA initialisation only if configured (not used at DDMI Cal).</li>
+  <li><b>No module reset for AWS at DDMI Cal</b>; <code>W_TestMode = 0</code> + <code>W_Reset</code> run here only for FQC / Final test.</li>
+</ul>
+<h3>4.2 Set_Temp</h3>
+<ul>
+  <li>Station <b>DDMI CAL, customer AWS: <code>W_AWS_Test_Mode = 0</code></b> (EEh:80h). [HW] With 1 the module accepts but ignores IBias writes and freezes disabled lanes; with 0 both work.</li>
+  <li>V6.8 has no temperature controller at DDMI Cal: no temperature is set.</li>
+</ul>
+<h3>4.3 Read SN</h3>
+<ul>
+  <li><code>R_Information</code> 00h:94h, 34 bytes ASCII: PN = bytes 148&ndash;163, revision 164&ndash;165, SN 166&ndash;181.</li>
+  <li>Must equal the scanned SN, otherwise "Inconsistent internal and external SN" &rarr; FAIL, stop.</li>
+</ul>
+<h3>4.4 VCC</h3>
+<p><code>Auto Adjust Vcc.vi</code>: the module reading (I2C Read Vcc) must be 2.8&ndash;4.0 V; first setting = supply output + half the error; then set, <b>wait 2000 ms</b>, measure the voltage at the module, add <b>half</b> the error to the setting; repeat until within <b>0.01 V</b> of 3.3 V (stop if a setting would exceed 4.0 V). The supply is switched on by the operator, not by the program. Current limit parameter 6000 mA. Then the module current is
+read and must exceed the value in <code>ICC Spec.txt</code> (<b>1.8 A</b>) or the test ends.
+[HW] The module's own VCC monitor lags a supply change by seconds; the 2 s wait is needed.</p>
+<h3>4.5 Read_Spec and Wait_Temp</h3>
+<ul>
+  <li>Read_Spec here only shows the limits (the wrapper already downloaded them).</li>
+  <li><b>Wait_Temp is skipped at the DDMI Cal station</b> (the frame compares the station with "DDMI Cal"). For other stations it
+      waits for the case temperature from a thermostream (RT AWS window 30&ndash;40 &deg;C, ATS LT &minus;5, ATS HT 70 &deg;C &hellip;).</li>
+</ul>
+
+<h2>5. Scan_MPD state</h2>
+<p>Purpose: find each lane's operating point on its modulator (MZM) curve, teach the firmware TOPS loop to hold it,
+set the laser bias, and tune the TX-disable voltage.</p>
+<div class="flow">for pass in 1..2:                                   outer loop; stop when Scan_Disable passes
+    for scan in 1..2:                               inner loop; stop when the scan passes
+        800G SIP Tx MPD Monitor.vi                  (frames 0..5 below)
+    if pass == 1 and not Only_Test:  Item_Test "Adjust Power"
+    Item_Test "Scan_Disable"</div>
+<p>The Adjust Power case is selected by the outer loop counter (case 0 runs it) and sits inside a case on the global
+<code>Only_Test</code> (False &rarr; run). In a normal production run Only_Test is False.</p>
+
+<h3>5.1 What is measured</h3>
+<table>
+<tr><th>Signal</th><th>Register</th><th>Meaning</th></tr>
+<tr><td>Vtops</td><td>W/R E9h:A0h, 8 &times; 2 bytes</td><td>Heater voltage of the lane's phase shifter. raw = V &divide; 5.0 &times; 4095</td></tr>
+<tr><td>TXMON</td><td>R F3h:86h, 8 &times; U16 (little-endian) [HW]</td><td>Monitor on the modulator's main output</td></tr>
+<tr><td>MPD_OUT</td><td>R F3h:F0h, 8 &times; U16 (little-endian) [HW]</td><td>Monitor on the complementary output (falls when TXMON rises)</td></tr>
+</table>
+<p>Lane map: laser n feeds CH n and CH n+4. Each of the 8 lanes has its own modulator, heater, TXMON and MPD_OUT.</p>
+
+<h3>5.2 MPD Monitor.vi frame by frame</h3>
+<table>
+<tr><th>Frame</th><th>What it does</th><th>Registers</th><th>Wait</th></tr>
+<tr><td>0 Prepare</td><td>Bias loop off and TOPS loop off; 1 s; then Vtops of every lane to 1.0 V and tops_off to 0; 1 s</td>
+    <td>W_IBiasPID E9h:D0h = 0; W_TOPPID E8h:80h = 0; W_Vtops_P = 1.0 V; W_tops_off E8h:CCh = 0</td><td>1 s + 1 s</td></tr>
+<tr><td>1 Sweep</td><td>Vtops 0.5 &rarr; 3.0 V in 0.02 V steps (126 points), all 8 lanes together; read TXMON each step (R_TXADC / R_TXMPD reads are commented out)</td>
+    <td>W_Vtops_P, R_TXMON</td><td>50 ms per step</td></tr>
+<tr><td>2 Analyse</td><td>Per lane: Peak Search.vi for peaks and for valleys; pair a valley with the peak after it (one rising edge); the four target levels; Tops_Mid</td><td>&ndash;</td><td>&ndash;</td></tr>
+<tr><td>3 Operating points</td><td>At 4.5, 3.5, 3.0, 2.5 dB and Tops_Mid: write Vtops, wait, read TXMON and MPD_OUT, TXMON &divide; MPD_OUT &times; 1000 (= TXP_MPDOut)</td>
+    <td>W_Vtops_P, R_TXMON, R_MPD_OUT</td><td>1 s per point</td></tr>
+<tr><td>4 Write</td><td>In error-wire order: Vtops = Tops_Mid; tops_off = valley voltage (both coerced to 0.2&ndash;3.0 V); wait; W_Reset; wait; <b>then</b> tops_setpoint</td>
+    <td>W_Vtops_P; W_tops_off; W_Reset 00h:1Ah = 08h; W_tops setpoint E8h:82h</td><td>2 s before reset, 10 s after</td></tr>
+<tr><td>5 Read back</td><td>Vtops and tops_off read back; the scan passes when the lane's Vtops is above its tops_off (AWS start room 0)</td><td>R_tops_Vtops, R_tops_off</td><td>&ndash;</td></tr>
+</table>
+<ul>
+  <li><b>The loops are not switched back on by the scan.</b> The block that writes TOPPID / IBiasPID = 255 is commented out
+      (disabled). The W_Reset in frame 4 restarts the module, which brings both loops back.</li>
+  <li>Sweep range by customer: AWS 0.5&ndash;3.0 V / 0.02 V; Acacia 0.0&ndash;2.0 V / 0.01 V; others 0.0&ndash;1.5 V / 0.02 V.</li>
+  <li>Customer branches in frame 4: for other customers a fixed default tops setpoint is used (LC-2*FR4 900, MPO-DR8 320,
+      Acacia 1500), and only the Acacia branch also writes W_Bias_setpoint (2040) here. For <b>AWS the measured setpoint is
+      written and no bias setpoint</b> (the "False / Default" case passes the commands with a False flag). A module finished by
+      the LabVIEW station holds tops setpoints of 516&ndash;732, i.e. measured values.</li>
+</ul>
+
+<h3>5.3 The analysis (frame 2)</h3>
+<ol>
+  <li><b>Peak Search.vi</b> (peaks and valleys): mean threshold; one entry per run of points above/below it; a peak run starting at sweep point 0 is not reported.</li>
+  <li><b>Pairing</b>: peak <i>k</i> with valley <i>k</i>; kept when peak index &minus; valley index &gt; 1, valley index &ge; 5 (AWS) and peak index &lt; (Max &minus; Min) / Step.
+      AWS then takes the kept pair with the <b>deepest valley</b> (Array Max &amp; Min, min index). The result is a rising edge (Vtops_Mid &gt; Vtops_min, change list 2025-10-09).
+      [HW] On a falling edge the firmware loop does not hold the lane after a reset.</li>
+  <li><b>Target levels</b>: (1 &minus; x) &times; peak for x in <code>[0.65, 0.56, 0.50, 0.44]</code> = 4.5 / 3.5 / 3.0 / 2.5 dB below the peak.</li>
+  <li><b>Closest step</b> between the chosen valley and peak (no interpolation). If the 3.5 dB and 3.0 dB points share a step, the 3.5 dB point moves one step lower.</li>
+  <li><b>Tops_Mid</b> = mean of the 3.5 dB and 3.0 dB voltages; <b>Tops_setpoint</b> = round(TXMON &divide; MPD_OUT &times; 1000) at Tops_Mid.</li>
+</ol>
+<h3>5.4 Adjust Power (Item_Test.vi, AWS LC-2*FR4)</h3>
+<ol>
+  <li>Write the default bias setpoint <b>[280, 280, 410, 450]</b> (one value per laser) to all three registers:
+      W_Bias_setpoint (RT, E9h:D2h), W_Bias_setpointHT (E9h:B0h), W_Bias_setpointLT (E9h:B8h) &mdash; IIC.vi commands 55/56/57.</li>
+  <li>Wait 2 s, read the 8 true TX powers (meter + Tx Loss).</li>
+  <li>Per laser n: mean of the dBm powers of CH n and CH n+4 (<code>Mean.vi</code>).
+      Below <b>0.7 dBm &rarr; +20</b>; above <b>2.3 dBm &rarr; &minus;30</b>; otherwise unchanged. One step only.</li>
+  <li>If anything changed, write the new values to RT, HT and LT.</li>
+</ol>
+<p>The second AWS branch ([300, 350], window 1.0&ndash;2.6 dBm, 2 lasers) is the MPO-DR8 case. The final power
+adjustment (up to 5 steps, 150&ndash;750) is done later at the TP2/TP3 station.</p>
+<div class="note">A module that has already passed TP2/TP3 and is re-run through DDMI Cal gets its bias setpoints reset to these
+defaults: its supply current and TX power drop (seen on hardware: about 150 mA less).</div>
+
+<h3>5.5 Scan_Disable (Item_Test.vi): TX-disable tuning</h3>
+<p>All 8 lanes are handled together: <code>W_TXDis</code> (10h:82h) is written with IIC.vi "channel 9" (0xFF, all lanes off)
+and "channel 8" (0x00, all lanes on), and the 8-channel meter reads all lanes at once.</p>
+<ol>
+  <li>Start from each lane's tops_off (the scan's valley). Measure at tops_off, tops_off + 0.01 V, tops_off &minus; 0.01 V.</li>
+  <li>For each lane, step 0.01 V four more times in the direction that got darker; keep the darkest voltage.</li>
+  <li>Write the best tops_off, disable, wait 0.1 s, read the leakage; enable, wait 1 s.</li>
+  <li>If a lane is still above <b>&minus;18 dBm</b>, five more steps in its direction (this block is in V6.8; change list V6.5).</li>
+  <li>Every step writes tops_off and re-toggles the lanes (enable all, disable all): the module applies tops_off when a lane is
+      disabled. [HW] A tops_off write to a lane that stays disabled has no effect.</li>
+  <li>Result: Tx_Disable(dBm), Tops_Mid, Tops_off per lane; limit <b>&minus;60 to &minus;16 dBm</b> (&minus;18 dBm is only the tuning trigger).</li>
+</ol>
+<p>Waits inside the loop are 0 s and 0.01 s; the I&sup2;C and meter reads take most of the time. All W_Reset blocks in Scan_Disable
+belong to the MPO-DR8 case and are commented out.</p>
+
+<h2>6. DDMI_CAL state</h2>
+<p>For each item (<code>DDMI_Adjust_TX, DDMI_RXP, DDMI_VCC, DDMI_Temp</code>) Item_Test.vi calls <code>DDMI_Cal.vi</code> with
+Select = Cal, then Select = Check, in a while loop that re-runs once (50 ms wait) when the check fails:
+TX if slope outside 5&ndash;150 or |dTxP| &gt; 0.5 dB; RX if slope outside 5&ndash;30 or |dRxP| &gt; 0.5 dB.</p>
+<p>The common fit (<code>Calulate_Curve Fit Coefficient.vi</code>, linear): two known true values y and the module's raw
+readings x &rarr; slope = (y&#8322; &minus; y&#8321;) &divide; (x&#8322; &minus; x&#8321;), offset = y&#8321; &minus; slope &times; x&#8321;.
+The module reports y = slope &times; raw + offset itself. Units are linear: power in mW &times; 10000 (0.1 &micro;W), voltage in V &times; 10000 (100 &micro;V).</p>
+
+<h3>6.1 TX power calibration (DDMI_Cal.vi frame "Txp", Cal, Siph)</h3>
+<table>
+<tr><th>Step</th><th>Action</th><th>Registers / instruments</th><th>Wait</th></tr>
+<tr><td>1</td><td>Read and keep the present bias</td><td>R_IBias E9h:C0h (4 &times; U16 = mA &times; 100, 4 lasers) [HW]</td><td>&ndash;</td></tr>
+<tr><td>2</td><td>Bias loop off; bias 60 mA on all 4 lasers</td><td>W_IBiasPID = 0; W_IBias</td><td>2 s</td></tr>
+<tr><td>3</td><td>Read the true power of all 8 lanes and TXMON</td><td>meter + Tx Loss[ch]; R_TXMON</td><td>&ndash;</td></tr>
+<tr><td>4</td><td>Bias 180 mA; repeat step 3</td><td>W_IBias</td><td>2 s</td></tr>
+<tr><td>5</td><td>Per lane: y = 10^(dBm/10) &times; 10000 (not rounded), x = TXMON &rarr; slope, offset; write 8 pairs</td><td>W_DTXPCal: ECh (CH1&ndash;4), EDh (CH5&ndash;8), C0h</td><td>&ndash;</td></tr>
+<tr><td>6</td><td>Loop on, bias back to the kept value, reset</td><td>W_IBiasPID (constant 16430 for LC-2*FR4, converted by IIC.vi; a LabVIEW-finished module reads 15); W_IBias; W_Reset</td><td>10 s</td></tr>
+</table>
+<p>Bias points by product: LC-2*FR4 AWS <b>60 / 180 mA</b>; LC-2*FR4 other 70 / 130; MPO-DR8 100 / 200, AWS 100 / 300, Acacia 80 / 120.
+Lanes n and n+4 share a laser but each has its own TXMON, so all 8 lanes get their own slope and offset.</p>
+<p><b>TX check:</b> at normal bias after the reset, true power vs R_DTXP 11h:9Ah (8 &times; U16, 0.1 &micro;W):
+dTxP = true dBm &minus; DDMI dBm, limit &plusmn;0.5 dB. DDMI_Adjust_TX then reads R_Bias_setpoint and R_tops setpoint for the record.
+The AWS bias-setpoint adjustment inside DDMI_Adjust_TX is commented out in V6.8.</p>
+
+<h3>6.2 RX power calibration (frame "Rxp", Cal)</h3>
+<ol>
+  <li>For &minus;2 dBm and then &minus;10 dBm, look up each lane's attenuation in its RX table (<code>CH RxP To Att.vi</code>, linear interpolation).</li>
+  <li>2&times;FR4 works in lane pairs (1,5), (2,6), (3,7), (4,8) ("2XFR4 two CH Parallel"): set the pair's wavelength and attenuation on both attenuator channels, read R_RSSI F3h:A6h (8 &times; U16, little-endian), keep the two active lanes.</li>
+  <li>Per lane: y = &minus;2 dBm &rarr; 6310, &minus;10 dBm &rarr; 1000; x = RSSI &rarr; slope, offset; write W_DRXPCal (ECh/EDh, 90h).</li>
+  <li>Wait after each pair: "ATT Delay(s)" ("BERT Time" station setting) + 2 s. Fit input y = 10^(dBm/10) &times; 10000, not rounded.</li>
+  <li>Check (Item_Test.vi DDMI_RXP; DDMI_Cal's Rxp "Check" case is empty): &minus;6 dBm in the same pairs, read R_DRXP 11h:BAh, error = DDMI &minus; (&minus;6),
+      |error| &lt; 0.5 dB and RX slope 5&ndash;30, else Cal + Check once more.</li>
+</ol>
+
+<h3>6.3 VCC calibration (frame "Vcc")</h3>
+<table>
+<tr><th>Step</th><th>Action</th><th>Registers</th><th>Wait</th></tr>
+<tr><td>1</td><td>Unlock (DSP debug, dual PRBS)</td><td>W_Debug_AWS = 63 (CFh:81h), W_Daul_AWS = 64 (CFh:86h) then CFh:80h = 63</td><td>&ndash;</td></tr>
+<tr><td>2</td><td>Clear the old calibration</td><td>W_VccCal = [0, 0] (EBh:90h)</td><td>&ndash;</td></tr>
+<tr><td>3</td><td>Supply until the module sees 3.13 V, read the VCC ADC</td><td>Auto Adjust Vcc.vi; R_VCCADC F3h:84h</td><td>2 s</td></tr>
+<tr><td>4</td><td>Same at 3.47 V</td><td></td><td>2 s</td></tr>
+<tr><td>5</td><td>y = V &times; 10000, x = ADC &rarr; slope, offset; write</td><td>W_VccCal</td><td>&ndash;</td></tr>
+<tr><td>6</td><td>Lock</td><td>W_Nomal_AWS = 0 (CFh:81h), W_Mission_AWS = 0 (CFh:86h) then CFh:80h = 63</td><td>&ndash;</td></tr>
+</table>
+<p>Check: Auto Adjust to 3.3 V, wait (unwired Time Delay, 1 s default), read R_DVCC 00h:10h (U16 &times; 100 &micro;V), read the module voltage again,
+dVcc = real &minus; DDMI in volts (AWS), limit &plusmn;0.033 V. Item_Test.vi re-runs Cal + Check only when |dVcc| &ge; 1.0. After clearing VccCal there is
+another unwired Time Delay (1 s default).
+Since 2025-10-10 the station reads the module voltage through an I&sup2;C ADC behind the 3.3 V divider (I2C Read Vcc.vi, scale 2).</p>
+
+<h3>6.4 Temperature (frame "Temp")</h3>
+<p>Read R_DTEMP 00h:0Eh, signed 16-bit &divide; 256 = &deg;C. Limit 30&ndash;60 &deg;C. No temperature calibration at DDMI Cal
+(the 500-read offset routine with W_TempCalRT/HT/LT exists in the VI but is not used here).</p>
+
+<h2>7. ShowPF, Move_out and MES after the test</h2>
+<h3>7.1 ShowPF (AWS, station DDMI CAL)</h3>
+<table>
+<tr><th>Loop</th><th>Each try</th><th>Stops when</th><th>On failure</th></tr>
+<tr><td>Frame 0, up to 3 tries</td><td>Disable Temp Off Func FEh:<b>95h</b> = <b>59</b> (FEh:98h only for Oracle(AWS DUT)); wait 2 s; read back</td><td>reads 59</td><td>"Disable Temp Offset Fail!"</td></tr>
+<tr><td>Frame 1, up to 3 tries</td><td>W_TestMode EEh:83h = CCh; W_Reset; wait 10 s; read TestMode, R_DSP_OperatingMode CFh:86h, R_DSP TestMode CFh:81h</td><td>CCh, 0, 0</td><td>"Test Mode Set Fail!" / "DSP Mode Reset Fail!"</td></tr>
+</table>
+<p>PASS/FAIL: every result is compared with its Low/High limit (<code>Dispaly.vi</code>); failing items are listed per lane.</p>
+<h3>7.2 Move_out and upload</h3>
+<ol>
+  <li>Build the record string for table <b>TestResult_800G_TRX_TEST</b> (golden-sample runs: TestResult_800G_Golden_Sample_TEST).</li>
+  <li>Wrapper: <code>Table Value to MES Data.vi</code> &rarr; Save_Data (retried up to 3 times) &rarr; Pcs_Check_OUT.</li>
+  <li>Local copies: <code>Save Record.vi</code> (the daily CSV, section 11), <code>Save Picture.vi</code> (front panel), <code>Timing.vi</code> (step times).</li>
+</ol>
+
+<h2>8. Every delay in one place</h2>
+<table>
+<tr><th>Where</th><th>Wait</th><th>Count</th><th>Total</th></tr>
+<tr><td>VCC start-up (Auto Adjust Vcc)</td><td>2 s after every supply change</td><td>2&ndash;3 tries</td><td>4&ndash;6 s</td></tr>
+<tr><td>MPD scan frame 0</td><td>1 s + 1 s</td><td>1</td><td>2 s</td></tr>
+<tr><td>MPD scan frame 1</td><td>50 ms per step</td><td>126</td><td>6.3 s</td></tr>
+<tr><td>MPD scan frame 3</td><td>1 s per point</td><td>5</td><td>5 s</td></tr>
+<tr><td>MPD scan frame 4</td><td>2 s before W_Reset, 10 s after</td><td>1</td><td>12 s</td></tr>
+<tr><td>Adjust Power</td><td>2 s after the default write</td><td>1</td><td>2 s</td></tr>
+<tr><td>Scan_Disable</td><td>0 / 0.01 s per step; 0.1 s final read; 1 s after enable</td><td>8 (+5)</td><td>&lt; 2 s fixed</td></tr>
+<tr><td>TX cal</td><td>2 s per bias point; 10 s after W_Reset</td><td>2 + 1</td><td>14 s</td></tr>
+<tr><td>RX cal</td><td>"ATT Delay(s)" ("BERT Time") + 2 s after each lane pair, plus 0.25 s per AT4208 Set</td><td>4 pairs &times; 3 points</td><td>&ge; 24 s</td></tr>
+<tr><td>VCC cal</td><td>2 s per point (Auto Adjust Vcc)</td><td>2 + check</td><td>4&ndash;8 s</td></tr>
+<tr><td>DDMI items</td><td>50 ms between a failed check and the re-run</td><td>0&ndash;1</td><td>&ndash;</td></tr>
+<tr><td>ShowPF</td><td>2 s per Temp Off Func try; 10 s per TestMode/reset try</td><td>1&ndash;3 each</td><td>about 12 s</td></tr>
+</table>
+<p>Fixed waits add up to about 50&ndash;60 s per module. The rest of the 4&ndash;5 minutes is I&sup2;C (IIC.vi waits 500 ms after a page
+switch for R_RSSI, R_DRXP&hellip;R_IBias, R_Bias_setpoint&hellip;R_tops setpoint; raised from 75 ms in 2025-09), meter and attenuator calls and MES.</p>
+
+<h2>9. Every register the station uses (AWS)</h2>
+<p>Vendor pages 80h&ndash;FFh need a password at 00h:7Ah&ndash;7Dh: <b>'AOIW'</b> (41 4F 49 57) unlocks reading, IIC.vi's second
+password <b>83 4A 2D 4C</b> unlocks writing. [HW] With only 'AOIW', vendor writes are acknowledged but discarded.
+Multi-byte order is per register: standard CMIS words and tops_setpoint are big-endian; the raw monitors on F3h and the
+calibration floats are little-endian. [HW]</p>
+<h3>9.1 Standard CMIS</h3>
+<table>
+<tr><th>Name</th><th>Page:Byte</th><th>Len</th><th>Format</th><th>Used in</th></tr>
+<tr><td>R_Information</td><td>00h:94h</td><td>34</td><td>ASCII PN / rev / SN</td><td>Read SN</td></tr>
+<tr><td>R_DTEMP</td><td>00h:0Eh</td><td>2</td><td>S16 &divide; 256 &deg;C</td><td>Temperature</td></tr>
+<tr><td>R_DVCC</td><td>00h:10h</td><td>2</td><td>U16 &times; 100 &micro;V</td><td>VCC check</td></tr>
+<tr><td>W_Reset</td><td>00h:1Ah</td><td>1</td><td>08h</td><td>MPD scan, TX cal, ShowPF</td></tr>
+<tr><td>W_TXDis / W_TXEnable</td><td>10h:82h</td><td>1</td><td>bit per lane; FFh all off, 00h all on</td><td>Scan_Disable</td></tr>
+<tr><td>R_DTXP</td><td>11h:9Ah</td><td>16</td><td>8 &times; U16, 0.1 &micro;W</td><td>TX check</td></tr>
+<tr><td>R_DBias</td><td>11h:AAh</td><td>16</td><td>8 &times; U16</td><td>record</td></tr>
+<tr><td>R_DRXP</td><td>11h:BAh</td><td>16</td><td>8 &times; U16, 0.1 &micro;W</td><td>RX check</td></tr>
+</table>
+<h3>9.2 Raw monitors (vendor page F3h, little-endian)</h3>
+<table>
+<tr><th>Name</th><th>Page:Byte</th><th>Len</th><th>Used in</th></tr>
+<tr><td>R_VCCADC</td><td>F3h:84h</td><td>2</td><td>VCC cal</td></tr>
+<tr><td>R_TXMON</td><td>F3h:86h</td><td>16</td><td>MPD scan, TX cal</td></tr>
+<tr><td>R_RSSI</td><td>F3h:A6h</td><td>16</td><td>RX cal</td></tr>
+<tr><td>R_MPD_OUT</td><td>F3h:F0h</td><td>16</td><td>MPD scan frame 3</td></tr>
+</table>
+<h3>9.3 TOPS, bias and loops</h3>
+<table>
+<tr><th>Name</th><th>Page:Byte</th><th>Len</th><th>Format</th><th>Used in</th></tr>
+<tr><td>W_TOPPID</td><td>E8h:80h</td><td>1</td><td>0 = TOPS loop off; reads 255 after a LabVIEW run [HW]</td><td>MPD scan frame 0</td></tr>
+<tr><td>tops setpoint</td><td>E8h:82h</td><td>16</td><td>8 &times; U16 big-endian [HW]</td><td>MPD scan frame 4</td></tr>
+<tr><td>tops_room</td><td>E8h:ACh</td><td>16</td><td>V &divide; 5 &times; 4095</td><td>not used at DDMI Cal (AWS start room 0)</td></tr>
+<tr><td>tops_off</td><td>E8h:CCh</td><td>16</td><td>V &divide; 5 &times; 4095</td><td>MPD scan, Scan_Disable</td></tr>
+<tr><td>Vtops (W_Vtops_P / R_tops_Vtops)</td><td>E9h:A0h</td><td>16</td><td>V &divide; 5 &times; 4095</td><td>MPD scan</td></tr>
+<tr><td>Bias_setpoint HT / LT / RT</td><td>E9h:B0h / B8h / D2h</td><td>8 each</td><td>4 &times; U16, one per laser [HW]</td><td>Adjust Power, DDMI_Adjust_TX</td></tr>
+<tr><td>IBias</td><td>E9h:C0h</td><td>8</td><td>4 &times; U16 = mA &times; 100 [HW]</td><td>TX cal</td></tr>
+<tr><td>W_IBiasPID</td><td>E9h:D0h</td><td>1</td><td>0 = bias loop off; 15 to restore [HW]</td><td>MPD scan, TX cal</td></tr>
+</table>
+<h3>9.4 Calibration storage (AWS) [HW]</h3>
+<p>Float32 <b>little-endian</b>; each page holds the <b>4 offsets first, then the 4 slopes</b> (confirmed: offset + slope &times;
+raw monitor reproduces the module's own DDMI value for TX, RX and VCC).</p>
+<table>
+<tr><th>Name</th><th>Pages</th><th>Start</th><th>Layout</th></tr>
+<tr><td>DTXPCal</td><td>ECh (CH1&ndash;4), EDh (CH5&ndash;8)</td><td>C0h</td><td>offsets CH1&ndash;4 at C0h, slopes at D0h</td></tr>
+<tr><td>DRXPCal</td><td>ECh, EDh</td><td>90h</td><td>offsets at 90h, slopes at A0h</td></tr>
+<tr><td>VccCal</td><td>EBh</td><td>90h</td><td>offset at 90h, slope at 94h</td></tr>
+</table>
+<p class="small">Other customers use page E4h with slope &times; 256 in 2 bytes (TX 88h/C0h, RX A8h/E0h, VCC 80h/B8h), raw monitors on E2h and TOPS/bias on E3h/E5h.</p>
+<h3>9.5 Mode registers (AWS) [HW]</h3>
+<table>
+<tr><th>Name</th><th>Page:Byte</th><th>Values</th><th>Used in</th></tr>
+<tr><td>W_AWS_Test_Mode</td><td>EEh:80h</td><td>0 at DDMI Cal</td><td>Set_Temp</td></tr>
+<tr><td>W_TestMode / R_TestMode</td><td>EEh:83h</td><td>CCh to exit</td><td>ShowPF</td></tr>
+<tr><td>W_Debug_AWS / W_Nomal_AWS (DSP test mode)</td><td>CFh:81h</td><td>63 / 0</td><td>VCC cal, ShowPF check</td></tr>
+<tr><td>W_Daul_AWS / W_Mission_AWS (DSP operating mode)</td><td>CFh:86h, then CFh:80h = 63</td><td>64 / 0</td><td>VCC cal, ShowPF check</td></tr>
+<tr><td>Disable / Read Temp Off Func</td><td>FEh:95h (Oracle: 98h)</td><td>59</td><td>ShowPF</td></tr>
+</table>
+<p class="small">Confirmed on 2026-10-19: a module finished by the LabVIEW V6.8 station read TempOffFunc 59, TestMode CCh, DSP modes 0/0,
+AWS_Test_Mode 0, Bias_setpoint RT = HT = LT = 280/280/410/450, IBiasPID 15, TOPPID 255.</p>
+
+<h2>10. Test items and limits (Step_To_Item.vi, AWS LC-2*FR4)</h2>
+<p>MES Read_Spec overrides these built-in values. The columns appear in this order in the daily CSV and the MES record.</p>
+<table>
+<tr><th>Item group</th><th>Columns</th><th>Low &ndash; High</th></tr>
+<tr><td>Scan_Disable</td><td>Tx_Disable(dBm) &middot; Tops_Mid &middot; Tops_off</td><td>&minus;60 &ndash; &minus;16 &middot; 0 &ndash; 3 &middot; 0 &ndash; 3</td></tr>
+<tr><td>DDMI_Adjust_TX</td><td>Power(dBm) &middot; DDMI_TxP &middot; dTxP &middot; Txp_Offset &middot; Txp_Slope &middot; Bias_setpoint &middot; Tops_setpoint</td>
+    <td>&minus;3.3 &ndash; 10000 &middot; &minus;3.8 &ndash; 10000 &middot; &plusmn;0.5 &middot; &plusmn;10000 &middot; 5 &ndash; 150 &middot; 100 &ndash; 2500 &middot; 100 &ndash; 2500</td></tr>
+<tr><td>DDMI_RXP</td><td>RxP1 &middot; DD_RxP1 &middot; dRxP1 &middot; Rxp_Offset &middot; Rxp_Slope</td><td>&ndash; &middot; &ndash; &middot; &plusmn;0.5 &middot; &plusmn;10000 &middot; 5 &ndash; 30</td></tr>
+<tr><td>DDMI_VCC</td><td>I2C_Vcc &middot; DDMI_Vcc &middot; dVcc(%) &middot; Vcc_Offset &middot; Vcc_Slope</td><td>3.234 &ndash; 3.366 &middot; / &middot; &plusmn;0.033 &middot; &plusmn;10000 &middot; 15 &ndash; 30</td></tr>
+<tr><td>DDMI_Temp</td><td>DDMI_Temp</td><td>30 &ndash; 60</td></tr>
+<tr><td>TXP_MPDOut</td><td>TXP_MPDOut_4.5dB &middot; _3.5dB &middot; _3dB &middot; _2.5dB</td><td>no limit (record only)</td></tr>
+</table>
+
+<h2>11. What changes in the module, and where data is stored</h2>
+<table>
+<tr><th>Value</th><th>Written in</th><th>Register</th><th>After the test</th></tr>
+<tr><td>tops_setpoint (8)</td><td>MPD scan frame 4 (after the reset)</td><td>E8h:82h</td><td>TXMON/MPD_OUT &times; 1000 at Tops_Mid</td></tr>
+<tr><td>Vtops (8)</td><td>MPD scan frame 4</td><td>E9h:A0h</td><td>Tops_Mid (start point for the loop)</td></tr>
+<tr><td>tops_off (8)</td><td>MPD scan, Scan_Disable</td><td>E8h:CCh</td><td>valley voltage, tuned in 0.01 V steps</td></tr>
+<tr><td>Bias setpoint RT/HT/LT (4 each)</td><td>Adjust Power</td><td>E9h:D2h/B0h/B8h</td><td>280/280/410/450 &plusmn; one step</td></tr>
+<tr><td>TX, RX, VCC slope/offset</td><td>DDMI_CAL</td><td>EB/EC/EDh</td><td>new calibration</td></tr>
+<tr><td>IBias</td><td>TX cal</td><td>E9h:C0h</td><td>restored to the value read before</td></tr>
+<tr><td>Modes</td><td>Set_Temp, VCC cal, ShowPF</td><td>EEh, CFh, FEh</td><td>AWS_Test_Mode 0, TestMode CCh, DSP 0/0, TempOffFunc 59</td></tr>
+</table>
+<table>
+<tr><th>Data</th><th>Where</th></tr>
+<tr><td>All results and limits</td><td>MES table TestResult_800G_TRX_TEST (Move_out &rarr; Save_Data)</td></tr>
+<tr><td>Local record</td><td>daily CSV <code>YYYY-MM-DD_DDMI2XFR4.csv</code>: per module a MAX row, a MIN row (limits) and CH1&ndash;CH8 rows with
+    ALL-SN, Result, Test Time, Machine time(S), the item columns of section 10 and "error item" (0 or <i>Item:value</i>)</td></tr>
+<tr><td>Tx Loss CH1&ndash;8</td><td><code>system_Data.ini</code> [Data] <code>Tx Loss = "v1\tv2\t&hellip;\tv8\0D\0A"</code> (other keys: Device, Icc Cal, Source ER, LS Power, RX Loss, SZ, Type, Infrared Visa, Air temps, RX Type&hellip;)</td></tr>
+<tr><td>RX attenuation tables</td><td><code>CHn_Rx_calibration.txt</code> (CH1&ndash;8)</td></tr>
+<tr><td>Front-panel picture, step times</td><td>Save Picture.vi, Timing.vi (station log folder)</td></tr>
+</table>
+
+<h2>12. Station tools (CAL tab, not part of each test)</h2>
+<ul>
+  <li><b>Tx Loss Cal</b>: Tx Loss[ch] = golden-sample true power &minus; station reading; saved as one tab-separated line CH1&rarr;CH8;
+      warning above 3.5 dB (2&times;FR4; DR8 2.5 dB). True TX power = meter + Tx Loss[ch]. Must be measured on the station's own fibres.</li>
+  <li><b>Rx Loss Cal</b> (<code>0-30ATT.vi</code> &rarr; <code>Att Calibration.vi</code>): one channel at a time, others at 40 dB; attenuation
+      stepped 0&ndash;20 dB in 1 dB steps with a 0 replaced by 1 (1, 1, 2 &hellip; 20); wait "ATT Delay(s)" + 0.5 s per point; power at the module input stored as
+      &minus;dBm per step; all attenuators back to 1 dB at the end; lookup by linear interpolation.</li>
+</ul>
+
+<h2>13. Calculations</h2>
+<table>
+<tr><th>Calculation</th><th>Formula</th><th>Example</th></tr>
+<tr><td>dBm &rarr; linear</td><td>round(10^(dBm/10) &times; 10000)</td><td>&minus;2 &rarr; 6310; &minus;10 &rarr; 1000</td></tr>
+<tr><td>linear &rarr; dBm</td><td>10&middot;log10(lin &divide; 10000)</td><td>11629 &rarr; 0.66 dBm</td></tr>
+<tr><td>Volts &rarr; linear</td><td>V &times; 10000</td><td>3.13 &rarr; 31300</td></tr>
+<tr><td>Temperature</td><td>S16 &divide; 256</td><td>2A80h &rarr; 42.5 &deg;C</td></tr>
+<tr><td>Vtops / tops_off encoding</td><td>round(V &divide; 5.0 &times; 4095)</td><td>1.47 V &rarr; 1204</td></tr>
+<tr><td>Tops_setpoint, TXP_MPDOut</td><td>round(TXMON &divide; MPD_OUT &times; 1000)</td><td>1850 / 2940 &rarr; 629</td></tr>
+<tr><td>Two-point fit</td><td>slope = &Delta;y/&Delta;x, offset = y&#8321; &minus; slope&middot;x&#8321;</td><td>module reports slope&middot;raw + offset</td></tr>
+<tr><td>RX table</td><td>att = att_lo + (target &minus; p_lo) &divide; (p_hi &minus; p_lo) &times; (att_hi &minus; att_lo)</td><td>CH1: &minus;6 dBm &rarr; 7.74 dB</td></tr>
+</table>
+
+<h2>14. Open items</h2>
+<table>
+<tr><th>#</th><th>Item</th><th>Why it matters</th></tr>
+<tr><td>1</td><td><s>Which rising edge is used</s>: <b>resolved</b> (5.3): index distance &gt; 1, valley index &ge; 5, peak not on the last point, deepest valley. Matches 6 of 8 lanes; the other 2 have equally deep valleys</td><td>Operating point, Tops_setpoint, tops_off</td></tr>
+<tr><td>2</td><td>RX wait: <b>decoded</b>, "ATT Delay(s)" + 2 s per lane pair (6.2); the production value of "ATT Delay(s)" ("BERT Time") is not in the V6.8 copy</td><td>RX calibration timing</td></tr>
+<tr><td>3</td><td>Exact pass condition of the inner scan loop (frame 5 read-back / start-room check)</td><td>When a re-scan happens</td></tr>
+</table>
+
+<h2 class="pb">15. Sub-VIs: MES, records, instruments, RX table, Peak Search</h2>
+<p>These 21 sub-VIs were opened and printed in a second pass with the Study Tool. Their diagrams are in Appendix E and in the companion PDF.</p>
+
+<h3>15.1 Peak Search.vi (used by the MPD scan analysis)</h3>
+<ol>
+  <li>Threshold = <b>mean of the whole sweep</b> (sum &divide; number of points).</li>
+  <li>The curve is walked point by point. A <b>valley region</b> is a run of points below the mean and a <b>peak region</b> is a run at or above it.</li>
+  <li>Inside each region the lowest value (valleys) or highest value (peaks) is tracked with its index. When the curve crosses the mean, or the sweep ends, that value and index are appended.</li>
+  <li>Outputs: Amplitude[], Location[] and Found (the count). The MPD Monitor calls it once for "Peaks" and once for "Valleys".</li>
+</ol>
+<p><b>Pairing in 800G SIP Tx MPD Monitor.vi:</b> peak <i>k</i> is paired with valley <i>k</i> (same index). The pair is used only when
+peak index &minus; valley index &gt; 1 (a distance in sweep points), the valley index is at least <b>5 for AWS</b> (20 or 100 for other customers), and
+the peak index is below (Vtops_Max &minus; Vtops_Min) / Step. AWS then takes the kept pair with the deepest valley. With the valley-index rule our edge choice matched the LabVIEW-stored
+operating point on 7 of 8 lanes of P172262504894 (CH6 differs). Python: <code>MIN_VALLEY_INDEX = 5</code> in <code>ddmi/calc/tops.py</code>.</p>
+
+<h3>15.2 MES (Cimes_All.vi, Mes Interface.vi, Get Soap content.vi)</h3>
+<table>
+<tr><th>Item</th><th>Value</th></tr>
+<tr><td>Server</td><td><code>MesServer Address.txt</code> &rarr; <code>http://172.30.1.139/CIMES_CN_PRD/AOIRule/AOIServices/LabViewService.asmx</code></td></tr>
+<tr><td>Station name</td><td>"DDMI Cal"</td></tr>
+<tr><td>Mode</td><td>Mes Interface case "Internet" (SOAP over HTTP) or "Local" (no MES)</td></tr>
+<tr><td>Cimes_All actions</td><td>Pcs_Check_IN, Pcs_Check_OUT, Save_Data, Read_Date, Read_Test_Times, Read_Spec, Read_ErrorCode, TOOL,
+    GoldenSample_*, Read_Test_Data, Read_GoldenSample_Data</td></tr>
+<tr><td>SOAP methods</td><td>PcsCheckOut, InsertTestDataByPcs (Save_Data), GetErrorCodeList, LabViewCheckOut &hellip;</td></tr>
+<tr><td>Envelope</td><td>Get Soap content.vi builds the SOAP 1.1 body from the method's <code>?op=</code> template and fills the parameters</td></tr>
+<tr><td>Reply</td><td>regex <code>(?&lt;=&lt;%s&gt;).*?(?=&lt;/%s&gt;)</code> with %s = <code>Result</code>; the call passes when the result is "OK", otherwise
+    "MES Return abnormal content!"</td></tr>
+</table>
+<p><b>Table Value to MES Data.vi</b> builds the Save_Data record. Each channel row becomes
+<code>&lt;ch&gt;_DDMI,Pass|Fail,v1,v2,&hellip;</code> with values joined by ",". NaN and &minus;Inf are sent as "0". Channel rows are joined with "$".</p>
+
+<h3>15.3 Local files (Save Record.vi, Save Picture.vi, Timing.vi)</h3>
+<table>
+<tr><th>VI</th><th>What it writes</th></tr>
+<tr><td>Save Record.vi</td><td>folder <code>Record</code>, file <code>%Y-%m-%d_2XFR4 Record.CSV</code>; rows appended, comma separated (header written once per file)</td></tr>
+<tr><td>Save Picture.vi</td><td>front-panel image to the network share <code>\\172.30.1.164\TR&hellip;\Picture\%m-%d\</code></td></tr>
+<tr><td>Timing.vi</td><td>time stamp <code>%Y-%m-%d-%H-%M-%S</code> used for the file names and the Test Time column</td></tr>
+</table>
+
+<h3>15.4 Instruments</h3>
+<table>
+<tr><th>VI</th><th>Behaviour</th><th>Delay</th></tr>
+<tr><td>Semight AT4208 IP Control.vi</td><td>attenuator over TCP/IP: Set Wavelength, Set ATT, Set Output, Read_IN_OUT</td>
+    <td><b>0.25 s</b> after each Set; 0.02 s after a read</td></tr>
+<tr><td>OVA Set Chs Att.vi</td><td>picks the attenuator driver; for AT4208 on 2&times;FR4 it uses attenuator channels 0 and 1 (RX pair A / B)</td><td>from the driver</td></tr>
+<tr><td>Stelight_VOA_SM_SetChannelAtt / _delaytime</td><td>alternative Stelight VOA driver with its own delay VI</td><td>driver delay</td></tr>
+<tr><td>OSW Switch CH.vi</td><td>optical switch to the requested channel</td><td><b>2.0 s</b> after a switch</td></tr>
+<tr><td>OPM Read Chs Power.vi</td><td>reads the power meter channels; mapping for WG1019 LC-2*FR4 = [1, 2, 3, 4, 1, 2, 3, 4] (CH5&ndash;8 reuse heads 1&ndash;4 after the switch)</td><td>&ndash;</td></tr>
+<tr><td>PowerMeter_ReadChannelPowerList / delaytime</td><td>meter driver: reads all heads in one command</td><td>driver delay</td></tr>
+<tr><td>I2C Read Vcc.vi</td><td>reads the EVB supply through the USB-ISS adapter: init <code>5A 02 60 0F</code>, set pins <code>0x63</code> + port I/O,
+    <code>GET AnalogData 0x65</code>, 2 bytes back. V = (b0&middot;256 + b1) &times; Vref (3.3/5 V) &divide; 1024 &times; Scale</td><td>short delay between commands (subTimeDelay)</td></tr>
+</table>
+<div class="ok">RX wait: the AT4208 driver waits 0.25 s after each Set, and DDMI_Cal.vi / Item_Test.vi then wait "ATT Delay(s)" + 2 s before reading
+RSSI / DDMI RX power (section 6.2). "ATT Delay(s)" is the station setting "BERT Time".</div>
+
+<h3>15.5 RX table lookup (CH RxP To Att.vi, Read ATT Table_400G.vi, Calulate_Curve Fit Coefficient.vi)</h3>
+<ol>
+  <li>CH RxP To Att.vi picks the table by channel. Case 0&ndash;3 use the globals CH1 Cal &hellip; CH4 Cal (the text of <code>CHn_Rx_calibration.txt</code>).</li>
+  <li>Read ATT Table_400G.vi turns the text into a 2-column array (column 0 attenuation, column 1 power).
+      <b>Rx Pow&rarr;Att</b>: (target + RxP Offset) is looked up in the power column with linear interpolation, giving the attenuation.
+      <b>Att&rarr;Rx Pow</b>: the reverse, minus the RxP Offset.</li>
+  <li>Calulate_Curve Fit Coefficient.vi fits y against x: curve type 0 = Linear (a0 + a1&middot;x), others = polynomial up to a4. It returns
+      the coefficients, the fitted curve and the MSE. For DDMI_CAL the two-point linear case gives slope and offset (section 13).</li>
+</ol>
+
+<h3>15.6 Wait_Temp.vi (skipped at DDMI Cal)</h3>
+<p>The VI polls the module temperature (IIC R_DTEMP, or an IR thermometer / thermostream when one is selected) once every <b>1000 ms</b>.
+It keeps the last <b>30</b> readings and is stable when their max &minus; min is inside the window. For the "Final test HT" stations it also compares
+against <b>49 &deg;C</b>. A disabled frame holds an old thermostream set-point of 43.5 &deg;C. It does not run at DDMI Cal, where the state is skipped.</p>
+
+<h3>15.7 Display (Dispaly.vi)</h3>
+<p>This is a front-panel helper. It calls Check light, Check if File or Folder Exists and Analysis error, and it fills the result display. It writes no module registers.</p>
+
+<h2 class="pb">Appendix A. State enum of 800G_TRx_Test.vi</h2>
+<p>0 Reini &middot; 1 Set_Temp &middot; 2 VCC &middot; 3 Read SN &middot; 4 StartTest &middot; 5 DDMI &middot; 6 Wait_Temp &middot; 8 ShowPF &middot;
+10 Tx Loss Cal &middot; 11 Rx Loss Cal &middot; 12 SaveImage &middot; 14 Stop &middot; 15 ExitF &middot; 16 Standby &middot; 17 Move_in (disabled) &middot;
+18 Move_out &middot; 19 Scan_MPD &middot; 20 Read_Spec &middot; 21 DDMI_CAL &middot; 23 G_DDMI &middot; 24 G_Final_DDMI &middot; 25 Rework</p>
+<h2>Appendix B. IIC.vi command enum</h2>
+<p class="small">0 R_TempADC &middot; 1 R_Information &middot; 2 R_VCCADC &middot; 3 R_RSSI &middot; 4 R_TXMON &middot; 5 R_MPD_OUT &middot; 6 R_MPDIN &middot; 7 R_TXADC &middot; 8 R_TXMPD &middot;
+9 R_DTEMP &middot; 10 R_DVCC &middot; 11 R_DRXP &middot; 12 R_DTXP &middot; 13 R_DBias &middot; 14 R_TempCal &middot; 15 R_VccCal &middot; 16 R_DTXPCal &middot; 17 R_DRXPCal &middot;
+18 R_IBias &middot; 19 R_Los &middot; 20 R_Bias_setpoint &middot; 21 R_Bias_setpointHT &middot; 22 R_Bias_setpointLT &middot; 23 R_tops setpoint &middot; 24 R_tops_Vtops &middot;
+25 R_tops_room &middot; 26 R_tops_off &middot; 27 R_IDAC &middot; 28 R_EML_DAC &middot; 29 R_TAP6 &middot; 30 R_Swing &middot; 31 R_Inner_Eye &middot; 32 R_Outer_Eye &middot;
+33 R_TEC_Current &middot; 34 R_HT_OA &middot; 35 R_RT_OA &middot; 36 R_LT_OA &middot; 37 R_Tap2 &middot; 38 R_Tap3 &middot; 39 R_Low_Eye &middot; 40 R_Vbias &middot;
+41 W_TempCalRT &middot; 42 W_TempCalHT &middot; 43 W_TempCalLT &middot; 44 W_VccCal &middot; 45 W_DTXPCal &middot; 46 W_DRXPCal &middot; 47 W_IBias &middot; 48 W_TOPPID &middot;
+49 W_IBiasPID &middot; 50 W_LP &middot; 51 W_TXDis &middot; 52 W_TXEnable &middot; 53 W_Vtops_P &middot; 54 W_LS_Line_PRBS &middot; 55 W_Bias_setpoint &middot;
+56 W_Bias_setpointHT &middot; 57 W_Bias_setpointLT &middot; 58 W_tops setpoint &middot; 59 W_tops_room &middot; 60 W_tops_off &middot; 61 W_IDAC &middot; 62 W_EML_DAC &middot;
+63 W_Reset &middot; 64 W_DSP_Mode &middot; 65 W_Tap6 &middot; 66 W_Swing &middot; 67 W_Inner_Eye &middot; 68 W_Outer_Eye &middot; 69 W_TestMode &middot; 70 W_AWS_Test_Mode &middot;
+71 R_LD_Temp &middot; 72 R_DSP_VCC &middot; 73 R_DSP_Temp &middot; 74 R_NTC_Temp &middot; 75 R_TestMode &middot; 76 W_Mission_AWS &middot; 77 W_Daul_AWS &middot;
+78 W_Nomal_AWS &middot; 79 W_Debug_AWS &middot; 80 R_DSP_OperatingMode &middot; 81 R_DSP TestMode &middot; 82 Disable Temp Off Func &middot; 83 Read Temp Off Func</p>
+<h2>Appendix C. Version history (Cimes_Interface.vi notes)</h2>
+<p class="small">1.0 2025-07-15 &middot; 1.1 07-21 &middot; 4.1 07-23 &middot; 4.2 08-01 &middot; 4.3 08-05 &middot; 4.4 08-06 &middot; 4.5 08-07 &middot; 4.6 08-08 &middot; 4.7 08-12 &middot;
+4.9 08-18 &middot; 5.0 08-19 &middot; 5.1 08-20 &middot; 5.2 08-21 &middot; 5.3 08-22 &middot; 5.4 08-28 &middot; 5.5 09-01 &middot; 5.6 09-04 &middot; 5.7 09-16 &middot; 5.8 09-23 &middot;
+5.9 10-09 &middot; 6.0 10-13 &middot; 6.1 10-29 &middot; 6.2 12-11 &middot; 6.3 12-16 &middot; 6.4 2026-01-14 &middot; 6.5 02-14 &middot; 6.6 03-10 &middot; 6.7 03-25 &middot; <b>6.8 2026-04-30</b></p>
+<p class="small">Changes that shaped DDMI Cal: 5.6 TXP_MPDOut recorded, Tops setpoint from the measured ratio; 5.8 rescan check + power-adjust step;
+5.9 AWS start room 0, rising edge (Vtops_mid &gt; Vtops_min), AWS step 0.02 V; 6.0/10-14 Scan_Disable spec check and rescan; 10-16 shorter
+MPD/TX waits (1 s, 10 s); 10-21 Tops_Mid = mean of 3.0 and 3.5 dB; 6.5 Scan_Disable extra 5 steps below &minus;18 dBm, Debug-Dual during VCC cal,
+DSP mission-mode check in ShowPF.</p>
+
+<h2 class="pb">Appendix D. Diagram figures (printed with the LabVIEW Study Tool)</h2>
+<p>Each figure is a contact sheet: several block-diagram frames tiled and labelled [d0], [d1] &hellip; ([d0] = the frame shown when the VI opens; [d1] &hellip; = the hidden case / sequence frames). The complete printouts of all nine main VIs (973 frames) and of the 21 sub-VIs are in the companion PDF <i>DDMI_Cal_V6.8_Diagrams.pdf</i>.</p>
+<h3>800G SIP Tx MPD Monitor.vi &mdash; the MPD scan (section 5.2): frame 0 prepare, sweep, Peak Search analysis, operating points, write order, read-back</h3>
+<div class="fig"><img src="fig/800G_SIP_Tx_MPD_Monitor_sheet_1.png"><div class="cap">800G SIP Tx MPD Monitor.vi, contact sheet 1 of 6</div></div>
+<div class="fig"><img src="fig/800G_SIP_Tx_MPD_Monitor_sheet_2.png"><div class="cap">800G SIP Tx MPD Monitor.vi, contact sheet 2 of 6</div></div>
+<div class="fig"><img src="fig/800G_SIP_Tx_MPD_Monitor_sheet_3.png"><div class="cap">800G SIP Tx MPD Monitor.vi, contact sheet 3 of 6</div></div>
+<div class="fig"><img src="fig/800G_SIP_Tx_MPD_Monitor_sheet_4.png"><div class="cap">800G SIP Tx MPD Monitor.vi, contact sheet 4 of 6</div></div>
+<div class="fig"><img src="fig/800G_SIP_Tx_MPD_Monitor_sheet_5.png"><div class="cap">800G SIP Tx MPD Monitor.vi, contact sheet 5 of 6</div></div>
+<div class="fig"><img src="fig/800G_SIP_Tx_MPD_Monitor_sheet_6.png"><div class="cap">800G SIP Tx MPD Monitor.vi, contact sheet 6 of 6</div></div>
+<h3>Peak Search.vi &mdash; peak / valley detection used by the analysis frame (section 5.3)</h3>
+<div class="fig"><img src="fig/Peak_Search_sheet_1.png"><div class="cap">Peak Search.vi, contact sheet 1 of 2</div></div>
+<div class="fig"><img src="fig/Peak_Search_sheet_2.png"><div class="cap">Peak Search.vi, contact sheet 2 of 2</div></div>
+<h3>Auto Adjust Vcc.vi &mdash; set, wait 2000 ms, measure, repeat until within 0.01 V (sections 4.4 and 6.3)</h3>
+<div class="fig"><img src="fig/Auto_Adjust_Vcc_sheet_1.png"><div class="cap">Auto Adjust Vcc.vi, contact sheet 1 of 2</div></div>
+<div class="fig"><img src="fig/Auto_Adjust_Vcc_sheet_2.png"><div class="cap">Auto Adjust Vcc.vi, contact sheet 2 of 2</div></div>
+<h3>DDMI_Cal.vi &mdash; TX, RX, VCC and temperature calibration and checks (section 6)</h3>
+<div class="fig"><img src="fig/DDMI_Cal_sheet_1.png"><div class="cap">DDMI_Cal.vi, contact sheet 1 of 13</div></div>
+<div class="fig"><img src="fig/DDMI_Cal_sheet_2.png"><div class="cap">DDMI_Cal.vi, contact sheet 2 of 13</div></div>
+<div class="fig"><img src="fig/DDMI_Cal_sheet_3.png"><div class="cap">DDMI_Cal.vi, contact sheet 3 of 13</div></div>
+<div class="fig"><img src="fig/DDMI_Cal_sheet_4.png"><div class="cap">DDMI_Cal.vi, contact sheet 4 of 13</div></div>
+<div class="fig"><img src="fig/DDMI_Cal_sheet_5.png"><div class="cap">DDMI_Cal.vi, contact sheet 5 of 13</div></div>
+<div class="fig"><img src="fig/DDMI_Cal_sheet_6.png"><div class="cap">DDMI_Cal.vi, contact sheet 6 of 13</div></div>
+<div class="fig"><img src="fig/DDMI_Cal_sheet_7.png"><div class="cap">DDMI_Cal.vi, contact sheet 7 of 13</div></div>
+<div class="fig"><img src="fig/DDMI_Cal_sheet_8.png"><div class="cap">DDMI_Cal.vi, contact sheet 8 of 13</div></div>
+<div class="fig"><img src="fig/DDMI_Cal_sheet_9.png"><div class="cap">DDMI_Cal.vi, contact sheet 9 of 13</div></div>
+<div class="fig"><img src="fig/DDMI_Cal_sheet_10.png"><div class="cap">DDMI_Cal.vi, contact sheet 10 of 13</div></div>
+<div class="fig"><img src="fig/DDMI_Cal_sheet_11.png"><div class="cap">DDMI_Cal.vi, contact sheet 11 of 13</div></div>
+<div class="fig"><img src="fig/DDMI_Cal_sheet_12.png"><div class="cap">DDMI_Cal.vi, contact sheet 12 of 13</div></div>
+<div class="fig"><img src="fig/DDMI_Cal_sheet_13.png"><div class="cap">DDMI_Cal.vi, contact sheet 13 of 13</div></div>
+<h2 class="pb">Appendix E. Sub-VI diagram figures (section 15)</h2>
+<p>One contact sheet per sub-VI (the first sheet; the companion PDF has every sheet of all 21 sub-VIs).</p>
+<div class="fig"><img src="fig/I2C_Read_Vcc_sheet_1.png"><div class="cap">I2C Read Vcc.vi: USB-ISS init, set pins 0x63, GET AnalogData 0x65, scale</div></div>
+<div class="fig"><img src="fig/Semight_AT4208_IP_Control_sheet_1.png"><div class="cap">Semight AT4208 IP Control.vi: commands and 0.25 s delays (sheet 1 of 3)</div></div>
+<div class="fig"><img src="fig/Semight_AT4208_IP_Control_sheet_2.png"><div class="cap">Semight AT4208 IP Control.vi, sheet 2 of 3</div></div>
+<div class="fig"><img src="fig/Semight_AT4208_IP_Control_sheet_3.png"><div class="cap">Semight AT4208 IP Control.vi, sheet 3 of 3</div></div>
+<div class="fig"><img src="fig/OSW_Switch_CH_sheet_1.png"><div class="cap">OSW Switch CH.vi: optical switch, 2 s wait</div></div>
+<div class="fig"><img src="fig/CH_RxP_To_Att_sheet_1.png"><div class="cap">CH RxP To Att.vi: table per channel (CH1-CH4 Cal)</div></div>
+<div class="fig"><img src="fig/Read_ATT_Table_400G_sheet_1.png"><div class="cap">Read ATT Table_400G.vi: Rx Pow->Att / Att->Rx Pow interpolation</div></div>
+<div class="fig"><img src="fig/Calulate_Curve_Fit_Coefficient_sheet_1.png"><div class="cap">Calulate_Curve Fit Coefficient.vi: linear / polynomial fit</div></div>
+<div class="fig"><img src="fig/Cimes_All_sheet_1.png"><div class="cap">Cimes_All.vi: MES action dispatcher</div></div>
+<div class="fig"><img src="fig/Mes_Interface_sheet_1.png"><div class="cap">Mes Interface.vi: SOAP call, Result regex, OK check</div></div>
+<div class="fig"><img src="fig/Get_Soap_content_sheet_1.png"><div class="cap">Get Soap content.vi: SOAP envelope</div></div>
+<div class="fig"><img src="fig/Table_Value_to_MES_Data_sheet_1.png"><div class="cap">Table Value to MES Data.vi: ch_DDMI,Pass/Fail,values joined by $</div></div>
+<div class="fig"><img src="fig/Save_Record_sheet_1.png"><div class="cap">Save Record.vi: daily Record CSV</div></div>
+<div class="fig"><img src="fig/Timing_sheet_1.png"><div class="cap">Timing.vi: time stamp format</div></div>
+<div class="fig"><img src="fig/Wait_Temp_sheet_1.png"><div class="cap">Wait_Temp.vi: 1 s poll, 30-reading window</div></div>
+</body>
+</html>
