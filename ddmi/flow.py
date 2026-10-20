@@ -17,11 +17,12 @@ from .steps import mpd_scan, rx_cal, showpf, startup, temp, tx_cal, vcc_cal
 # Stages shown as lights in the UI, in run order.
 STAGES = ["Startup", "Scan MPD", "TX Cal", "RX Cal", "VCC Cal", "Final"]
 
-# DDMI_CAL parts: name -> (stage, functions, items whose failure re-runs the part once)
+# DDMI_CAL parts: name -> (stage, functions, items whose failure re-runs the part once, or a
+# function returning the reasons for a re-run)
 DDMI_CAL = {
     "tx": ("TX Cal", (tx_cal.tx_cal, tx_cal.tx_check), ("Txp_Slope", "dTxP(dB)")),
     "rx": ("RX Cal", (rx_cal.rx_cal, rx_cal.rx_check), ("Rxp_Slope", "dRxP(dB)")),
-    "vcc": ("VCC Cal", (vcc_cal.vcc_cal, vcc_cal.vcc_check), ("Vcc_Slope", "dVcc(V)")),
+    "vcc": ("VCC Cal", (vcc_cal.vcc_cal, vcc_cal.vcc_check), vcc_cal.needs_rerun),
     "temp": ("VCC Cal", (temp.read_temp,), ()),
 }
 
@@ -102,7 +103,7 @@ def run(ctx: RunContext) -> None:
         for part in ctx.product["flow"]["ddmi_cal_order"]:
             stage, functions, retry_items = DDMI_CAL[part]
             _stage(ctx, stage, functions)
-            failed = _failed(ctx, retry_items)
+            failed = retry_items(ctx) if callable(retry_items) else _failed(ctx, retry_items)
             if failed:
                 ctx.log(f"{stage}: {', '.join(failed)} failed - running it once more")
                 _stage(ctx, stage, functions)

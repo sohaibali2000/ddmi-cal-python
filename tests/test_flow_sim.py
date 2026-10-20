@@ -542,3 +542,21 @@ def test_rx_pairs_wait_att_delay_plus_2_s(station_cfg, product):
     product["rx_cal"]["att_delay_s"] = 0.5
     assert rx_cal._pair_wait_s(product["rx_cal"]) == 2.5
     assert rx_cal._pairs(type("C", (), {"channels": list(range(1, 9))})()) == [(1, 5), (2, 6), (3, 7), (4, 8)]
+
+
+def test_vcc_is_rerun_only_for_a_dvcc_of_1v_or_more(station_cfg, product):
+    """Item_Test.vi V6.8 DDMI_VCC: re-run when |dVcc| >= 1.0 (V for AWS); a slope or dVcc
+    limit failure alone is judged at the end, not re-run."""
+    product["limits"]["vcc_slope"] = [0.1, 1]           # every slope fails its limit
+    record = run(station_cfg, product)
+    lines = (Path(station_cfg["results_dir"]) / record["log_file"]).read_text()
+    assert lines.count("W_VccCal written") == 1
+    assert any(f.startswith("Vcc_Slope") for f in record["failing_items"])
+
+
+def test_vcc_check_reads_the_module_voltage_after_r_dvcc(station_cfg, product):
+    record = run(station_cfg, product)
+    lines = (Path(station_cfg["results_dir"]) / record["log_file"]).read_text().splitlines()
+    start = next(n for n, l in enumerate(lines) if "W_VccCal written" in l)
+    check = [l for l in lines[start:] if "R_DVCC" in l or "VCC check" in l]
+    assert check and "R_DVCC" in check[0]

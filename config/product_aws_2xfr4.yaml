@@ -126,7 +126,11 @@ vcc:
   current_limit_ma: 6000           # V6.8 VCC state: "Limit Curr (mA)" passed to Auto Adjust Vcc.vi
   nominal_v: 3.3
   cal_points_v: [3.13, 3.47]
-  settle_s: 2.0
+  settle_s: 2.0                    # DDMI_Cal.vi Vcc / Cal: after each adjust, before R_VCCADC
+  # Unwired "Time Delay" express VIs in DDMI_Cal.vi Vcc (configured time not readable from the
+  # V6.8 copy; LabVIEW's default is 1 s): after clearing VccCal, and after the check's adjust.
+  clear_wait_s: 1.0
+  check_wait_s: 1.0
   adjust_tolerance_v: 0.01         # Auto Adjust Vcc.vi: done when |target - module| < 0.01 V
 
 limits:                            # replaced by the MES spec when online
