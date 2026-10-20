@@ -106,6 +106,7 @@ def run(ctx: RunContext) -> None:
             failed = retry_items(ctx) if callable(retry_items) else _failed(ctx, retry_items)
             if failed:
                 ctx.log(f"{stage}: {', '.join(failed)} failed - running it once more")
+                ctx.sleep(0.05)             # Item_Test.vi V6.8: 50 ms between the runs
                 _stage(ctx, stage, functions)
         _stage(ctx, "Final", (showpf.cleanup,))
     except BaseException:

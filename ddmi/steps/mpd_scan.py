@@ -72,9 +72,11 @@ def _sweep(ctx: RunContext, cfg: dict):
     ctx.on_data("mpd_start", {"volts": volts, "lanes": lanes})
     for i, v in enumerate(volts):
         ctx.check_abort()
-        module.write("Vtops", [v] * lanes)
+        with module.no_page_wait():         # MPD Monitor.vi sweep: IIC.vi Delay = FALSE
+            module.write("Vtops", [v] * lanes)
         ctx.sleep(cfg.get("start_settle_s", 0.0) if i == 0 else cfg.get("step_settle_s", 0.0))
-        txmon = module.read("R_TXMON")
+        with module.no_page_wait():
+            txmon = module.read("R_TXMON")
         for lane, value in enumerate(txmon):
             curves[lane].append(value)
         scan["volts"].append(v)

@@ -1,6 +1,8 @@
 """Named register access to the module. Every module write goes through Module.write."""
 from __future__ import annotations
 
+import time
+from contextlib import contextmanager
 from typing import Callable
 
 from .base import I2CBus
@@ -26,6 +28,29 @@ class Module:
         self.log = log
         self.unlock_level = 0           # 0 locked, 1 vendor pages readable, 2 also writable
         self.writes_sent = 0            # settings actually written to the module (not the password)
+        self.page_waits = not is_sim    # IIC.vi V6.8 waits after every page select (not in the simulator)
+
+    # IIC.vi V6.8: every command selects the page, then waits (QSFP-DD IIC Page Select.vi ->
+    # IIC Write and Read.vi): 500 ms for R_RSSI, R_DRXP..R_IBias and R_Bias_setpoint..
+    # R_tops setpoint reads, 75 ms for every other command; none when the caller passes
+    # Delay = FALSE (the MPD sweep).
+    PAGE_WAIT_S = 0.075
+    SLOW_READ_WAIT_S = 0.5
+    SLOW_READS = frozenset({"R_RSSI", "R_DRXP", "R_DTXP", "R_DBias", "VccCal", "DTXPCal_A", "DTXPCal_B",
+                            "DRXPCal_A", "DRXPCal_B", "IBias", "R_Bias_setpoint", "tops_setpoint"})
+
+    def _page_wait(self, name: str, read: bool) -> None:
+        if self.page_waits:
+            time.sleep(self.SLOW_READ_WAIT_S if read and name in self.SLOW_READS else self.PAGE_WAIT_S)
+
+    @contextmanager
+    def no_page_wait(self):
+        """IIC.vi called with Delay = FALSE (800G SIP Tx MPD Monitor.vi sweep)."""
+        before, self.page_waits = self.page_waits, False
+        try:
+            yield
+        finally:
+            self.page_waits = before
 
     VENDOR_PAGES = 0x80     # pages 80h-FFh are vendor pages: locked until the password is entered
 
@@ -59,6 +84,7 @@ class Module:
     def read(self, name: str):
         reg = self.regmap[name]
         self._ensure_unlocked(reg)
+        self._page_wait(name, read=True)
         data = self.bus.read(reg.page, reg.byte, reg.length)
         value = reg.decode(data)
         self.log(f"I2C R {name} [{reg.address}] = {data.hex()} -> {_show(value)}")
@@ -89,6 +115,7 @@ class Module:
                 f"refused write to unverified register {name} [{reg.address}]. "
                 "Confirm it with firmware, or pass --allow-unverified.")
         self._ensure_unlocked(reg, write=True)
+        self._page_wait(name, read=False)
         self.bus.write(reg.page, reg.byte, data)
         self.writes_sent += 1
         self.log(f"I2C W {text}")

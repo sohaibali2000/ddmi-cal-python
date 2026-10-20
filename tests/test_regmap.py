@@ -233,3 +233,26 @@ def test_vendor_writes_use_the_write_password(regmap):
     module.write("W_Reset", 0x08)                           # a reset locks again
     module.write("tops_setpoint", [602] * 8)
     assert [w[2] for w in bus.writes if w[1] == 0x7A][-1] == bytes([0x83, 0x4A, 0x2D, 0x4C])
+
+
+def test_iic_page_waits_follow_iic_vi(regmap, monkeypatch):
+    """IIC.vi V6.8: 0.5 s before R_RSSI / R_DRXP..R_IBias / setpoint reads, 75 ms before every
+    other command, none with Delay = FALSE (the MPD sweep) and none in the simulator."""
+    import ddmi.hw.module as module_mod
+
+    class Bus:
+        def read(self, page, byte, length): return bytes(length)
+        def write(self, page, byte, data): pass
+
+    waits = []
+    monkeypatch.setattr(module_mod.time, "sleep", waits.append)
+    m = Module(Bus(), regmap, is_sim=False)
+    m.unlock_level = 2
+    m.read("R_RSSI"), m.read("tops_setpoint"), m.read("R_TXMON"), m.read("R_DTEMP")
+    m.write("W_TXDis", 0)
+    with m.no_page_wait():
+        m.read("R_TXMON")
+    assert waits == [0.5, 0.5, 0.075, 0.075, 0.075]
+    waits.clear()
+    Module(Bus(), regmap, is_sim=True).read("R_DTEMP")
+    assert waits == []

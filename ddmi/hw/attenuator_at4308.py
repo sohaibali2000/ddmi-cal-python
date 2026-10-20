@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -39,7 +40,8 @@ def build_host(dll_dir: Path) -> Path:
     return exe
 
 
-class AttenuatorAT4308:
+class AttenuatorAT4308:
+    SET_DELAY_S = 0.25        # Semight AT4208 IP Control.vi V6.8: 0.25 s after each Set
     MAX_ATT_DB = 60.0
 
     def __init__(self, com_port: str, dll_dir: str, log: Callable[[str], None] = print):
@@ -97,8 +99,10 @@ class AttenuatorAT4308:
         if nm not in self.wave_ids:
             raise ValueError(f"attenuator has no calibration for {nm} nm (has {sorted(self.wave_ids)})")
         self._cmd(f"set_wl {ch} {self.wave_ids[nm]}")
+        time.sleep(self.SET_DELAY_S)
 
     def set_attenuation(self, ch: int, db: float) -> None:
         if not 0 <= db <= self.MAX_ATT_DB:
             raise ValueError(f"attenuation {db} dB is outside 0-{self.MAX_ATT_DB} dB")
         self._cmd(f"set_att {ch} {db:.2f}")
+        time.sleep(self.SET_DELAY_S)
