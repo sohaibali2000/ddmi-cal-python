@@ -534,3 +534,11 @@ def test_mpd_scan_frame_0_runs_in_v68_order(station_cfg, product):
     start = next(n for n, l in enumerate(lines) if "=== Scan MPD ===" in l)
     writes = [l.split("I2C W ")[1].split(" ")[0] for l in lines[start:] if "I2C W " in l][:4]
     assert writes == ["W_IBiasPID", "W_TOPPID", "Vtops", "tops_off"]
+
+
+def test_rx_pairs_wait_att_delay_plus_2_s(station_cfg, product):
+    """DDMI_Cal.vi / Item_Test.vi V6.8: after setting a lane pair, wait "ATT Delay(s)" + 2 s."""
+    from ddmi.steps import rx_cal
+    product["rx_cal"]["att_delay_s"] = 0.5
+    assert rx_cal._pair_wait_s(product["rx_cal"]) == 2.5
+    assert rx_cal._pairs(type("C", (), {"channels": list(range(1, 9))})()) == [(1, 5), (2, 6), (3, 7), (4, 8)]

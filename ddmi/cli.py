@@ -257,7 +257,7 @@ def cmd_rx_settle(args) -> int:
                                 if all(abs(x[1][lane] - final[lane]) <= tol for x in trace[i:])), None)
                 print(f"  CH{lane + 1}: settled within 2 % after {settled:.2f} s" if settled is not None
                       else f"  CH{lane + 1}: not settled in {args.seconds} s")
-        print("\nUse the slowest lane plus a margin as rx_cal.settle_s.")
+        print("\nV6.8 waits rx_cal.att_delay_s + 2 s; compare with the slowest lane above.")
     finally:
         station.close()
     return 0

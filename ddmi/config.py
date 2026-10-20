@@ -139,7 +139,7 @@ def validate_product(cfg: dict) -> dict:
         raise ConfigError("rx_cal.points_dbm needs two different powers")
     _number(cfg, "rx_cal.check_dbm")
     _numbers(cfg, "rx_cal.wavelengths_nm", int(channels))
-    _number(cfg, "rx_cal.settle_s", 0)
+    _number(cfg, "rx_cal.att_delay_s", 0)
 
     _number(cfg, "vcc.nominal_v", 0)
     v1, v2 = _numbers(cfg, "vcc.cal_points_v", 2)

@@ -104,7 +104,10 @@ rx_cal:
   check_dbm: -6
   # Attenuator wavelength per lane (the AT4308 is calibrated at 1270/1290/1310/1330).
   wavelengths_nm: [1270, 1290, 1310, 1330, 1270, 1290, 1310, 1330]
-  settle_s: 1.0                    # VERIFY: V6.8 uses a station value x 2 (not in the V6.8 files); measure RSSI settling
+  # Wait after setting a lane pair = att_delay_s + 2 s (DDMI_Cal.vi / Item_Test.vi V6.8). att_delay_s
+  # is the station setting "ATT Delay(s)" (front-panel field "BERT Time", system_Data.ini); its
+  # production value is not in the V6.8 copy - 0 gives V6.8's minimum of 2 s.
+  att_delay_s: 0.0
 
 wait_temp:
   # V6.8 skips Wait_Temp at the DDMI Cal station (no temperature controller; the Wait_Temp

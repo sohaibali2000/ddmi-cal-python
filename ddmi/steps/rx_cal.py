@@ -1,8 +1,13 @@
-"""RX calibration and check (build map 6.8): DDMI_Cal.vi frame 3 + CH RxP To Att.vi."""
+"""RX calibration and check: DDMI_Cal.vi V6.8 "Rxp" / Cal and Item_Test.vi "DDMI_RXP".
+
+Both work in lane pairs (1,5) (2,6) (3,7) (4,8) ("2XFR4 two CH Parallel"): table lookup
+for both lanes, Set Wavelength for both, Set ATT on both attenuator channels, wait
+"ATT Delay(s)" + 2 s, read R_RSSI (cal) or R_DRXP (check).
+"""
 from __future__ import annotations
 
 from ..calc.fit import two_point_fit
-from ..calc.units import dbm_to_lin, lin_to_dbm
+from ..calc.units import dbm_to_lin_exact, lin_to_dbm
 from ..runctx import RunContext, StopTest
 
 
@@ -18,6 +23,14 @@ def _set_power(ctx: RunContext, ch: int, power_dbm: float) -> None:
     except ValueError as exc:
         raise StopTest(f"RX CH{ch} at {power_dbm} dBm: {exc}") from exc
     ctx.detail(f"RX CH{ch}: {power_dbm} dBm -> attenuator CH{attenuator.channel(ch)} {att:.2f} dB")
+
+
+# DDMI_Cal.vi / Item_Test.vi V6.8: the wait after setting a pair is "ATT Delay(s)" + 2 s
+RX_FIXED_WAIT_S = 2.0
+
+
+def _pair_wait_s(cfg: dict) -> float:
+    return cfg.get("att_delay_s", 0.0) + RX_FIXED_WAIT_S
 
 
 def _pairs(ctx: RunContext) -> list[tuple[int, int]]:
@@ -37,7 +50,7 @@ def rx_cal(ctx: RunContext) -> None:
             ctx.check_abort()
             for ch in pair:
                 _set_power(ctx, ch, point)
-            ctx.sleep(cfg["settle_s"])
+            ctx.sleep(_pair_wait_s(cfg))
             reading = module.read("R_RSSI")
             for ch in pair:
                 rssi[ch].append(reading[ch - 1])
@@ -45,7 +58,7 @@ def rx_cal(ctx: RunContext) -> None:
             ctx.log(f"RX {point} dBm on CH{pair[0]}/CH{pair[1]}: RSSI "
                     f"{reading[pair[0] - 1]} / {reading[pair[1] - 1]}")
 
-    y = [dbm_to_lin(p) for p in cfg["points_dbm"]]
+    y = [dbm_to_lin_exact(p) for p in cfg["points_dbm"]]
     old_slopes, old_offsets = module.read_cal("DRXPCal")
     slopes, offsets = [], []
     for ch in ctx.channels:
@@ -89,7 +102,7 @@ def rx_check(ctx: RunContext) -> None:
         ctx.check_abort()
         for ch in pair:
             _set_power(ctx, ch, check)
-        ctx.sleep(cfg["settle_s"])
+        ctx.sleep(_pair_wait_s(cfg))
         ddmi = module.read("R_DRXP")
         for ch in pair:
             ddmi_dbm = lin_to_dbm(ddmi[ch - 1])

@@ -6,6 +6,12 @@ def dbm_to_lin(dbm: float) -> int:
     return round(10 ** (dbm / 10) * 10000)
 
 
+def dbm_to_lin_exact(dbm: float) -> float:
+    """dBm -> mW x 10000 without rounding, as DDMI_Cal.vi V6.8 feeds the curve fit
+    (x / 10, 10^x, x 10000): -2 dBm -> 6309.57."""
+    return 10 ** (dbm / 10) * 10000
+
+
 def lin_to_dbm(lin: float) -> float:
     if lin <= 0:
         return float("-inf")

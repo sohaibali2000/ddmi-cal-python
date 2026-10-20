@@ -25,3 +25,8 @@ def test_volts():
 @pytest.mark.parametrize("raw, temp", [(0x2A80, 42.5), (0xFF00, -1.0)])
 def test_temperature(raw, temp):
     assert units.temp_from_raw(raw) == temp
+
+
+def test_dbm_to_lin_exact_is_not_rounded_like_ddmi_cal_vi():
+    assert units.dbm_to_lin_exact(-2) == pytest.approx(6309.573, abs=0.001)
+    assert units.dbm_to_lin_exact(-10) == pytest.approx(1000.0)
