@@ -1,7 +1,8 @@
 """MES wrapper around the test (Cimes_Interface.vi; build map 6.1 and 6.12).
 
 Before: Pcs_Check_IN -> Read_Date -> Read_Spec -> Read_Test_Times.
-After:  Save_Data, then Pcs_Check_OUT only if Save_Data succeeded.
+After:  Save_Data (up to 3 tries, as Cimes_Interface.vi since 2026-03-19), then Pcs_Check_OUT
+        only if Save_Data succeeded.
 An aborted or crashed run is not uploaded (this port's choice; LabVIEW's is not confirmed).
 """
 from __future__ import annotations
@@ -9,6 +10,8 @@ from __future__ import annotations
 from typing import Callable
 
 from .client import MesClient
+
+SAVE_TRIES = 3
 
 
 def run_with_mes(mes: MesClient, sn: str, pn: str, station: str,
@@ -36,9 +39,13 @@ def run_with_mes(mes: MesClient, sn: str, pn: str, station: str,
         log(f"Run ended {record.get('result')}: nothing sent to MES, module stays checked in")
         return outcome
 
-    ok, message = mes.save_data(record)
+    for attempt in range(1, SAVE_TRIES + 1):
+        ok, message = mes.save_data(record)
+        if ok:
+            break
+        log(f"MES Save_Data try {attempt} failed: {message}")
     if not ok:
-        log(f"MES Save_Data failed, check-out blocked: {message}")
+        log(f"MES Save_Data failed {SAVE_TRIES} times, check-out blocked: {message}")
         outcome["message"] = message
         return outcome
     outcome["saved"] = True

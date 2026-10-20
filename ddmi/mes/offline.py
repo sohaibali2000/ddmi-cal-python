@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .client import RESULT_TABLE
+from .record import mes_data_string
 
 
 class OfflineMes:
@@ -38,8 +39,9 @@ class OfflineMes:
         path = self.root / "outbox" / f"{record.get('sn') or 'NOSN'}_{stamp}.json"
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps({"table": RESULT_TABLE, "record": record}, indent=2),
-                            encoding="utf-8")
+            # mes_data: the exact string V6.8 would send (Table Value to MES Data.vi)
+            path.write_text(json.dumps({"table": RESULT_TABLE, "mes_data": mes_data_string(record),
+                                        "record": record}, indent=2), encoding="utf-8")
         except OSError as exc:
             return False, str(exc)
         return True, str(path)

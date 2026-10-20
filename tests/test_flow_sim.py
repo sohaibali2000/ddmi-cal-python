@@ -585,3 +585,33 @@ def test_tx_cal_restore_order_and_record_read_back(station_cfg, product):
     ops = [l.split("I2C W ")[1].split(" [")[0] for l in lines[i:] if "I2C W " in l][:3]
     assert ops == ["W_IBiasPID", "IBias", "W_Reset"]
     assert values(record, "Tops_Setpoint") == list(station.sim_module.setpoint)
+
+
+def test_offline_outbox_holds_the_v68_mes_data_string(station_cfg, product):
+    """Table Value to MES Data.vi: '<n>_DDMI,Pass|Fail,<error>,values...' joined by '$'."""
+    import json
+    record = run(station_cfg, product)
+    outbox = Path(station_cfg["results_dir"]) / "mes_offline" / "outbox"
+    saved = json.loads(sorted(outbox.glob("*.json"))[-1].read_text())
+    parts = saved["mes_data"].split("$")
+    assert len(parts) == 8
+    assert parts[0].startswith("1_DDMI,Pass,0,") and parts[7].startswith("8_DDMI,")
+    assert "nan" not in saved["mes_data"].lower()
+
+
+def test_save_data_is_tried_three_times():
+    from ddmi.mes.wrapper import run_with_mes
+
+    class Flaky:
+        calls = 0
+        def check_in(self, sn): return True, "ok"
+        def read_date(self): return "now"
+        def read_spec(self, pn, st): return None
+        def read_test_times(self, sn): return 0
+        def save_data(self, record):
+            Flaky.calls += 1
+            return (Flaky.calls == 3), "busy"
+        def check_out(self, sn, passed): return True, "ok"
+
+    out = run_with_mes(Flaky(), "SN1", "PN", "DDMI Cal", lambda spec: {"result": "PASS", "sn": "SN1"}, lambda _t: None)
+    assert Flaky.calls == 3 and out["saved"] and out["checked_out"]
