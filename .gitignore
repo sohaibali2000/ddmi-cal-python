@@ -226,3 +226,6 @@ labview_xml/
 config/ui_settings.json
 config/mes_db.yaml
 ddmi/hw/voa_host/bin/
+
+# local copy of the LabVIEW Study Tool (not part of this project)
+LabVIEW_Study_Tool/
