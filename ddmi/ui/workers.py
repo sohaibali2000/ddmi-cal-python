@@ -7,7 +7,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from ..runner import run_slot
 from ..station import build_station
-from ..tools.rx_table import ATT_STEPS_DB, build_rx_table
+from ..tools.rx_table import ATT_SEQUENCE_DB, ATT_STEPS_DB, build_rx_table, point_wait_s
 from ..tools.tx_loss import calibrate_tx_loss
 
 
@@ -102,7 +102,7 @@ class RxTableWorker(_Worker):
 
     def run(self):
         table, closer = None, None
-        total = self.product["channels"] * len(self.ATTS)
+        total = self.product["channels"] * len(ATT_SEQUENCE_DB)
         count = 0
 
         def on_point(att, ch, power):
@@ -115,7 +115,7 @@ class RxTableWorker(_Worker):
             station = build_station(self.station_cfg, slot=self.slot_id)
             closer = station.close
             table = build_rx_table(station.bench, self.product["rx_cal"]["wavelengths_nm"],
-                                   settle_s=0.01 if station.sim_module else 0.5,
+                                   settle_s=0.01 if station.sim_module else point_wait_s(self.product["rx_cal"]),
                                    log=self.say, on_point=on_point, on_prompt=self._ask,
                                    abort=self._abort)
         except Exception as exc:

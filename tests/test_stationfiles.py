@@ -4,7 +4,7 @@ import pytest
 
 from ddmi import stationfiles
 from ddmi.station import build_station
-from ddmi.tools.rx_table import ATT_STEPS_DB, build_rx_table
+from ddmi.tools.rx_table import ATT_SEQUENCE_DB, build_rx_table
 from ddmi.mes.golden import fetch_golden_powers
 from ddmi.tools.tx_loss import calibrate_tx_loss, measure_tx_loss
 
@@ -165,8 +165,9 @@ def test_rx_table_build_save_and_lookup(station_cfg, product, tmp_path):
     seen = []
     table = build_rx_table(station.bench, product["rx_cal"]["wavelengths_nm"], log=QUIET,
                            on_point=lambda att, ch, power: seen.append((att, ch)))
-    assert sorted(table) == list(range(1, 9)) and len(seen) == 8 * len(ATT_STEPS_DB)
-    assert [att for att, _ in table[1]] == [float(a) for a in ATT_STEPS_DB]
+    assert sorted(table) == list(range(1, 9)) and len(seen) == 8 * len(ATT_SEQUENCE_DB)
+    # Att Calibration.vi V6.8: Start 0 .. Stop 20, a 0 replaced by 1
+    assert [att for att, _ in table[1]] == [1.0, 1.0] + [float(a) for a in range(2, 21)]
 
     stationfiles.write_rx_rows(tmp_path / "t", table)
     first = (tmp_path / "t" / "CH1_Rx_calibration.txt").read_text().splitlines()[0].split("\t")

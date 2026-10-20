@@ -305,7 +305,9 @@ def cmd_rx_table(args) -> int:
         return input(message + " Press Enter to continue, or type q to stop: ").strip().lower() != "q"
 
     try:
-        table = build_rx_table(station.bench, product["rx_cal"]["wavelengths_nm"], on_prompt=ask)
+        from .tools.rx_table import point_wait_s
+        table = build_rx_table(station.bench, product["rx_cal"]["wavelengths_nm"], on_prompt=ask,
+                               settle_s=0 if station.sim_module else point_wait_s(product["rx_cal"]))
     finally:
         station.close()
     if table is None:
