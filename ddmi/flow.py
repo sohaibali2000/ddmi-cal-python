@@ -1,12 +1,12 @@
 """Test sequence of 800G_TRx_Test.vi V6.8, station DDMI CAL, AWS 2xFR4.
 
 Read from the V6.8 VIs:
-  states:    Reini -> Set_Temp -> VCC -> Read_Spec -> Wait_Temp -> StartTest
+  states:    Reini -> Set_Temp -> Read SN -> Read_Spec -> Wait_Temp -> VCC -> StartTest
   StartTest: Scan_MPD -> DDMI_CAL -> ShowPF -> Move_out -> Stop
   Scan_MPD:  (Scan Vtops -> Adjust Power -> Scan_Disable), up to 2 passes
   DDMI_CAL:  DDMI_Adjust_TX -> DDMI_RXP -> DDMI_VCC -> DDMI_Temp, each re-run once when it
              fails its slope / error check
-Read SN runs with Set_Temp here; Read_Spec / Move_in / Move_out belong to the MES wrapper.
+Read_Spec / Move_in / Move_out belong to the MES wrapper (runner.py).
 """
 from __future__ import annotations
 
@@ -84,8 +84,10 @@ def run(ctx: RunContext) -> None:
     """Run the whole sequence. Raises Aborted or StopTest; results accumulate in ctx.results."""
     try:
         take_backup(ctx)
-        _stage(ctx, "Startup", (startup.reini, startup.set_temp, startup.read_sn, startup.set_vcc,
-                                startup.wait_temp))
+        # 800G_TRx_Test.vi V6.8 Start event: Reini, Set_Temp, Read SN, (Move_in), (Read_Spec:
+        # done by the MES wrapper / runner before this), Wait_Temp, VCC
+        _stage(ctx, "Startup", (startup.reini, startup.set_temp, startup.read_sn, startup.wait_temp,
+                                startup.set_vcc))
         passes = ctx.product["flow"].get("scan_mpd_passes", 2)
         for attempt in range(1, passes + 1):
             # 800G_TRx_Test.vi V6.8: Adjust Power sits in a case selected by the loop counter,

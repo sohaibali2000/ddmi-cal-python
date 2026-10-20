@@ -47,8 +47,14 @@ class SimBench:
         self.v_set = volts
         self._apply_supply()
 
+    def set_current_limit(self, amps: float) -> None:
+        self.current_limit_a = amps
+
     def read_current(self) -> float:
         return self.current_a + self.rng.gauss(0, 0.005)
+
+    def read_output_voltage(self) -> float:
+        return self.v_set
 
     def read_module_voltage(self) -> float:
         return self.module.v_module + self.rng.gauss(0, 0.0005)

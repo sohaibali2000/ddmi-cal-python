@@ -147,6 +147,8 @@ def validate_product(cfg: dict) -> dict:
         raise ConfigError("vcc.cal_points_v needs two different voltages")
     _number(cfg, "vcc.settle_s", 0)
     _number(cfg, "vcc.adjust_tolerance_v", 1e-6)
+    if "current_limit_ma" in cfg.get("vcc", {}):
+        _number(cfg, "vcc.current_limit_ma", 100, 6000)
 
     for name in ("tx_disable_dbm", "dtxp_db", "rx_check_error_db", "rx_slope",
                  "dvcc_v", "ddmi_temp_c"):

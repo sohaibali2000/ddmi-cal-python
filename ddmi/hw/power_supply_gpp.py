@@ -74,8 +74,19 @@ class GppSupply:
         if abs(readback - volts) > 0.002:
             raise SupplyError(f"supply on {self.port}: set {volts:.3f} V but it reports {readback:.3f} V")
 
+    def set_current_limit(self, amps: float) -> None:
+        if self.serial is None:
+            raise SupplyError(f"supply on {self.port} is not open")
+        self.serial.write(f"ISET{self.channel}:{amps:.3f}\n".encode())
+        readback = self._number(f"ISET{self.channel}?")
+        if abs(readback - amps) > 0.01:
+            raise SupplyError(f"supply on {self.port}: current limit {amps:.3f} A sent but it reports {readback:.3f} A")
+
     def read_current(self) -> float:
         return self._number(f"IOUT{self.channel}?")
+
+    def read_output_voltage(self) -> float:
+        return self._number(f"VOUT{self.channel}?")
 
     def read_module_voltage(self) -> float:
         """The supply's output voltage. Without remote sense this is not the voltage at the

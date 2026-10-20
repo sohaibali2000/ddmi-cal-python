@@ -44,15 +44,17 @@ class FakeGpp:
 
     def __init__(self, ident="GW Instek,GPP-3060,SN:GEZ201279,V1.08", output="ON"):
         self.ident, self.output = ident, output
-        self.vset, self.sent, self._reply = 3.502, [], b""
+        self.vset, self.iset, self.sent, self._reply = 3.502, 3.0, [], b""
 
     def write(self, data):
         cmd = data.decode().strip()
         self.sent.append(cmd)
         replies = {"*IDN?": self.ident, ":OUTPut1:STATe?": self.output, "VSET1?": f"{self.vset:06.3f}",
-                   "VOUT1?": "03.506V", "IOUT1?": "1.9775A"}
+                   "VOUT1?": "03.506V", "IOUT1?": "1.9775A", "ISET1?": f"{self.iset:05.3f}"}
         if cmd.startswith("VSET1:"):
             self.vset = float(cmd.split(":")[1])
+        elif cmd.startswith("ISET1:"):
+            self.iset = float(cmd.split(":")[1])
         elif cmd in replies:
             self._reply = (replies[cmd] + "\n").encode()
 
@@ -80,6 +82,14 @@ def test_gpp_sets_and_verifies_the_voltage():
     fake = FakeGpp()
     supply(fake).set_voltage(3.47)
     assert "VSET1:3.470" in fake.sent and fake.vset == pytest.approx(3.47)
+
+
+def test_gpp_sets_and_verifies_the_current_limit():
+    fake = FakeGpp()
+    psu = supply(fake)
+    psu.set_current_limit(6.0)                      # V6.8 VCC state: Limit Curr 6000 mA
+    assert "ISET1:6.000" in fake.sent and fake.iset == pytest.approx(6.0)
+    assert psu.read_output_voltage() == pytest.approx(3.506)
 
 
 def test_gpp_never_sets_above_the_station_limit():

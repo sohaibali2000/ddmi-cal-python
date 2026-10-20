@@ -14,13 +14,14 @@ class I2CBus(Protocol):
 
 class PowerSupply(Protocol):
     def set_voltage(self, volts: float) -> None: ...
+    def set_current_limit(self, amps: float) -> None: ...
     def read_current(self) -> float: ...            # A
+    def read_output_voltage(self) -> float: ...     # V at the supply terminals (PS Read Volt.vi)
 
     def read_module_voltage(self) -> float:
         """Voltage at the module, independent of the module's own DDMI.
 
-        Which reading LabVIEW uses for this (supply sense or `I2C Read Vcc.vi`)
-        is not confirmed.
+        V6.8 Auto Adjust Vcc.vi reads it with I2C Read Vcc.vi (USB-ISS ADC on the DUT board).
         """
         ...
 
@@ -90,8 +91,14 @@ class SensedSupply:
     def set_voltage(self, volts: float) -> None:
         self.supply.set_voltage(volts)
 
+    def set_current_limit(self, amps: float) -> None:
+        self.supply.set_current_limit(amps)
+
     def read_current(self) -> float:
         return self.supply.read_current()
+
+    def read_output_voltage(self) -> float:
+        return self.supply.read_output_voltage()
 
     def read_module_voltage(self) -> float:
         return self.read_module_volts()
@@ -106,8 +113,14 @@ class DryRunSupply:
     def set_voltage(self, volts: float) -> None:
         self.log(f"SUPPLY (dry-run, not sent) set {volts:.3f} V")
 
+    def set_current_limit(self, amps: float) -> None:
+        self.log(f"SUPPLY (dry-run, not sent) current limit {amps:.3f} A")
+
     def read_current(self) -> float:
         return self.supply.read_current()
+
+    def read_output_voltage(self) -> float:
+        return self.supply.read_output_voltage()
 
     def read_module_voltage(self) -> float:
         return self.supply.read_module_voltage()
