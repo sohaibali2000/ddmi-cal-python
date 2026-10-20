@@ -99,3 +99,11 @@ def test_shipped_config_gives_the_documented_operating_points():
     mid = tops.tops_mid(points, cfg["tops_mid_from"])
     below_peak_db = 10 * math.log10(_txmon_at(mid) / max(txmon))
     assert below_peak_db == pytest.approx(-3.25, abs=0.1)
+
+def test_valley_in_the_first_five_sweep_points_is_skipped():
+    """MPD Monitor.vi V6.8 (AWS): valley index >= 5. LabVIEW-finished P172262504894 CH5 used the
+    1.94 V valley, not the one at 0.56 V (sweep point 3)."""
+    volts = tops.sweep_points(0.5, 3.0, 0.02)
+    txmon = [round(410 + 400 * math.cos(math.pi * (v - 0.56) / 0.69 + math.pi)) for v in volts]
+    i_peak, i_valley = tops.peak_valley(txmon)
+    assert volts[i_valley] > 1.0 and volts[i_peak] > volts[i_valley]

@@ -24,6 +24,9 @@ def sweep_points(start: float, stop: float, step: float) -> list[float]:
 
 
 PEAK_MIN_OF_MAX = 0.8     # the edge's peak must reach this share of the sweep's maximum
+# MPD Monitor.vi V6.8 pairing loop: a valley is only used from this sweep point on
+# (AWS 5, Acacia 100, other customers 20) - AWS skips valleys below 0.60 V.
+MIN_VALLEY_INDEX = 5
 
 
 def peak_valley(txmon: list) -> tuple[int, int]:
@@ -49,6 +52,8 @@ def peak_valley(txmon: list) -> tuple[int, int]:
             start = None
     for k, (a, b) in enumerate(runs):
         valley = min(range(a, b), key=txmon.__getitem__)
+        if valley < MIN_VALLEY_INDEX:
+            continue
         end = runs[k + 1][0] if k + 1 < len(runs) else n
         if valley + 1 >= end:
             continue
