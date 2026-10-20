@@ -215,13 +215,10 @@ def adjust_power(ctx: RunContext) -> None:
             f"bias setpoint {default} -> {new}")
 
 
-def _measure_disabled(ctx: RunContext, tops_off: list, cfg: dict) -> dict:
-    """Write tops_off for every lane, enable all then disable all (the module applies
-    tops_off when a lane is disabled), and return each lane's output once settled."""
-    module = ctx.module
-    module.write("tops_off", tops_off)
-    module.write_value("W_TXDis", "txdis_all_on")
-    module.write_value("W_TXDis", "txdis_all_off")
+def _wait_dark_reading(ctx: RunContext, cfg: dict) -> tuple[dict, float]:
+    """Read the disabled lanes once they are steady. V6.8 reads straight away (0 s; 0.1 s
+    for the final reading); this module needs seconds after a disable, so the meter is
+    polled until stable_readings agree within tol_db (or the lane is dark_enough_dbm)."""
     poll, waited, hist = cfg["poll_s"], 0.0, []
     while True:
         ctx.sleep(poll)
@@ -237,65 +234,80 @@ def _measure_disabled(ctx: RunContext, tops_off: list, cfg: dict) -> dict:
     return hist[-1], waited
 
 
+def _measure_disabled(ctx: RunContext, tops_off: list, cfg: dict, final: bool = False) -> tuple[dict, float]:
+    """One Scan_Disable step, in Item_Test.vi V6.8 order: write tops_off for every lane,
+    disable all lanes (the module applies tops_off as a lane goes into disable), read the
+    leakage, enable all lanes, wait 0.01 s. The final reading (frame 3 / 5) leaves the lanes
+    enabled and waits enable_wait_s (1 s) instead."""
+    module = ctx.module
+    module.write("tops_off", tops_off)
+    module.write_value("W_TXDis", "txdis_all_off")
+    try:
+        power, waited = _wait_dark_reading(ctx, cfg)
+    finally:
+        module.write_value("W_TXDis", "txdis_all_on")
+    ctx.sleep(cfg["enable_wait_s"] if final else 0.01)
+    return power, waited
+
+
 def scan_disable(ctx: RunContext) -> None:
     """Item_Test.vi V6.8 "Scan_Disable", all 8 lanes at once.
 
-    From each lane's tops_off (the scan's valley): one step either side, then 4 steps in the
-    direction that got darker, keeping the darkest voltage. Write the best and read the
-    leakage. Lanes still above recheck_dbm get 5 more steps that way. All lanes are
-    re-enabled at the end.
+    Frame 0: from each lane's tops_off (the scan's valley) measure start, start + step and
+    start - step; a lane walks up if start + step was darker than start, otherwise down.
+    Frame 1: 4 steps at (start +/- step) +/- k*step, k = 1..4, taken whatever they read.
+    Frame 2: per lane the darkest of all measured points (first one on a tie).
+    Frame 3: write it, disable, read the leakage (the result), enable, 1 s.
+    Frames 4-5: if any lane is above recheck_dbm (-18), every lane takes 5 more steps
+    (k = 5..9), the darkest of all points is written and read again.
     """
     cfg, module = ctx.product["tx_disable"], ctx.module
     step = cfg["step_v"]
     chans = list(ctx.channels)
     start = list(module.read("tops_off"))
     ctx.log(f"Scan_Disable: all lanes disabled together; tops_off +/-{step} V, then "
-            f"{cfg['steps']} steps toward darker; {cfg['extra_steps']} more if above {cfg['recheck_dbm']} dBm")
-    readings = {ch: [] for ch in chans}
+            f"{cfg['steps']} steps; {cfg['extra_steps']} more if a lane is above {cfg['recheck_dbm']} dBm")
+    readings = {ch: [] for ch in chans}       # (tops_off V, dBm) of every measured point
     waits = []
 
-    def measure(values):
-        p, waited = _measure_disabled(ctx, values, cfg)
+    def measure(values, final=False):
+        p, waited = _measure_disabled(ctx, values, cfg, final)
         waits.append(round(waited, 1))
-        for ch in chans:
-            readings[ch].append((round(values[ch - 1], 3), round(p[ch], 2)))
+        if not final:
+            for ch in chans:
+                readings[ch].append((round(values[ch - 1], 4), round(p[ch], 2)))
         return p
 
+    def best():
+        """Frame 2 / 5: per lane the voltage of the lowest reading (Array Max & Min, min index)."""
+        return [min(readings[ch], key=lambda r: r[1])[0] for ch in chans]
+
     try:
-        best_v, best_p = list(start), measure(start)
-        p_plus = measure([v + step for v in start])
-        p_minus = measure([v - step for v in start])
-        direction = {}
-        for ch in chans:
-            i = ch - 1
-            direction[ch] = 1 if p_plus[ch] <= p_minus[ch] else -1
-            for sign, p in ((1, p_plus), (-1, p_minus)):
-                if p[ch] < best_p[ch]:
-                    best_v[i], best_p[ch] = start[i] + sign * step, p[ch]
+        p0 = measure(start)
+        p_up = measure([v + step for v in start])
+        measure([v - step for v in start])
+        direction = {ch: 1 if p_up[ch] < p0[ch] else -1 for ch in chans}
+        base = [start[ch - 1] + direction[ch] * step for ch in chans]
 
-        def walk(lanes, n):
-            for _ in range(n):
+        def walk(ks):
+            for k in ks:
                 ctx.check_abort()
-                trial = list(best_v)
-                for ch in lanes:
-                    trial[ch - 1] = best_v[ch - 1] + direction[ch] * step
-                p = measure(trial)
-                for ch in lanes:
-                    if p[ch] < best_p[ch]:
-                        best_v[ch - 1], best_p[ch] = trial[ch - 1], p[ch]
+                measure([base[ch - 1] + direction[ch] * k * step for ch in chans])
 
-        walk(chans, cfg["steps"])
-        leakage = measure(best_v)
+        walk(range(1, cfg["steps"] + 1))
+        best_v = best()
+        leakage = measure(best_v, final=True)
         bright = [ch for ch in chans if leakage[ch] > cfg["recheck_dbm"]]
         if bright and cfg["extra_steps"]:
-            ctx.log(f"Scan_Disable: CH{bright} above {cfg['recheck_dbm']} dBm - {cfg['extra_steps']} more steps")
-            walk(bright, cfg["extra_steps"])
-            leakage = measure(best_v)
+            ctx.log(f"Scan_Disable: CH{bright} above {cfg['recheck_dbm']} dBm - "
+                    f"{cfg['extra_steps']} more steps on every lane")
+            walk(range(cfg["steps"] + 1, cfg["steps"] + cfg["extra_steps"] + 1))
+            best_v = best()
+            leakage = measure(best_v, final=True)
     finally:
         module.write_value("W_TXDis", "txdis_all_on")
-        ctx.sleep(cfg["enable_wait_s"])
 
-    ctx.log(f"Scan_Disable: {len(waits)} steps, settle waits {waits} s "
+    ctx.log(f"Scan_Disable: {len(waits)} readings, settle waits {waits} s "
             f"(total {sum(waits):.1f} s, {sum(w >= cfg['max_s'] for w in waits)} hit the {cfg['max_s']} s limit)")
     lanes_meta = ctx.meta.get("mpd_scan", {}).get("lanes", {})
     for ch in chans:
