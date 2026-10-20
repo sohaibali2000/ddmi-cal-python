@@ -525,3 +525,12 @@ def test_adjust_power_leaves_the_bias_alone_without_light(product):
     with pytest.raises(StopTest, match="TX fibre"):
         adjust_power(ctx)
     assert not [w for w in ctx.writes if w[0].startswith("W_Bias_setpoint")]
+
+
+def test_mpd_scan_frame_0_runs_in_v68_order(station_cfg, product):
+    """800G SIP Tx MPD Monitor.vi V6.8 frame 0: IBiasPID 0, TOPPID 0, 1 s, Vtops 1.0 V, tops_off 0."""
+    record = run(station_cfg, product)
+    lines = (Path(station_cfg["results_dir"]) / record["log_file"]).read_text().splitlines()
+    start = next(n for n, l in enumerate(lines) if "=== Scan MPD ===" in l)
+    writes = [l.split("I2C W ")[1].split(" ")[0] for l in lines[start:] if "I2C W " in l][:4]
+    assert writes == ["W_IBiasPID", "W_TOPPID", "Vtops", "tops_off"]

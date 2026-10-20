@@ -107,3 +107,47 @@ def test_valley_in_the_first_five_sweep_points_is_skipped():
     txmon = [round(410 + 400 * math.cos(math.pi * (v - 0.56) / 0.69 + math.pi)) for v in volts]
     i_peak, i_valley = tops.peak_valley(txmon)
     assert volts[i_valley] > 1.0 and volts[i_peak] > volts[i_valley]
+
+
+def test_peak_search_reports_one_entry_per_run_around_the_mean():
+    data = [5, 1, 0, 1, 5, 9, 10, 9, 5, 1, 2, 1, 5, 8]          # mean 4.43
+    assert tops.peak_search(data, valleys=True) == ([0, 1], [2, 9])
+    # the run starting at point 0 is not reported for peaks; the open run at the end is
+    assert tops.peak_search(data, valleys=False) == ([10, 8], [6, 13])
+
+
+def test_the_pair_with_the_deepest_valley_is_used():
+    # two rising edges; the second valley is darker -> V6.8 (AWS) uses the second pair
+    volts = tops.sweep_points(0.5, 3.0, 0.02)
+    txmon = [round(1000 + 900 * math.cos(math.pi * (v - 0.7) / 0.5) - (300 if v > 1.95 else 0)) for v in volts]
+    i_peak, i_valley = tops.peak_valley(txmon)              # valleys 1.2 V and 2.2 V (darker)
+    assert volts[i_valley] == pytest.approx(2.2, abs=0.03)
+    assert volts[i_peak] == pytest.approx(2.7, abs=0.03)
+
+
+def test_a_peak_on_the_last_sweep_point_is_not_used():
+    volts = tops.sweep_points(0.5, 3.0, 0.02)
+    txmon = [round(100 + 1000 * (v - 1.5) ** 2) if v > 1.5 else round(100 + 1000 * (1.5 - v)) for v in volts]
+    with pytest.raises(ValueError):                 # only valley 1.5 V -> peak at 3.0 V (last point)
+        tops.peak_valley(txmon)
+
+
+def test_equal_3_5_and_3_db_points_are_split_by_one_step():
+    # 44 % and 50 % of the peak are both closest to the same step (TXMON 470)
+    txmon = [600] * 6 + [10, 20, 470, 900, 1000, 990] + [600] * 2
+    volts = [round(0.88 + 0.02 * i, 2) for i in range(len(txmon))]
+    points = tops.operating_points(volts, txmon, [0.65, 0.56, 0.50, 0.44], "one_minus_x_of_peak")
+    assert points[0.50] - points[0.56] == pytest.approx(0.02)
+
+
+def test_edge_choice_matches_the_labview_station_on_a_real_module():
+    """Sweeps of P172262504894 against the tops_off the LabVIEW V6.8 station left in the
+    module (Scan_Disable moves it a few 0.01 V steps). CH3 and CH6 have two valleys of equal
+    depth (13 vs 14 and 10 vs 10 counts), so the deepest-valley pick depends on sweep noise."""
+    import json
+    from pathlib import Path
+    data = json.loads((Path(__file__).parent / "data" / "p172262504894_mpd_sweep.json").read_text())
+    volts = data["volts"]
+    for ch in (1, 2, 4, 5, 7, 8):
+        _peak, valley = tops.peak_valley(data["curves"][ch - 1])
+        assert volts[valley] == pytest.approx(data["labview_tops_off"][ch - 1], abs=0.05), ch

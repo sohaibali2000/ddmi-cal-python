@@ -23,44 +23,58 @@ def sweep_points(start: float, stop: float, step: float) -> list[float]:
     return [round(start + i * step, 6) for i in range(count + 1)]
 
 
-PEAK_MIN_OF_MAX = 0.8     # the edge's peak must reach this share of the sweep's maximum
-# MPD Monitor.vi V6.8 pairing loop: a valley is only used from this sweep point on
-# (AWS 5, Acacia 100, other customers 20) - AWS skips valleys below 0.60 V.
+# 800G SIP Tx MPD Monitor.vi V6.8 pairing loop: a valley is only used from this sweep point on
+# (AWS 5, Acacia 100, other customers 20).
 MIN_VALLEY_INDEX = 5
 
 
-def peak_valley(txmon: list) -> tuple[int, int]:
-    """(peak index, valley index) of the first RISING edge of one lane's sweep: the lowest-
-    voltage valley that has a full peak after it, and that peak.
+def peak_search(data: list, valleys: bool) -> tuple[list[float], list[int]]:
+    """Peak Search.vi V6.8: (amplitudes, locations).
 
-    800G SIP Tx MPD Monitor.vi V6.8 pairs each Peak Search valley with the peak above it, and
-    for AWS requires Vtops_Mid > Vtops_min (rising edge, change list 2025-10-09). Every row of
-    the production CSV has Tops_Mid > Tops_off. On a falling edge the module's TOPS loop
-    does not hold the lane after a reset (it sits at the top of the fringe).
+    Threshold = mean of the whole sweep. Every run of points at or above it (peaks) or at or
+    below it (valleys) gives one entry: its highest / lowest point (the first one on a tie).
+    A run still open at the end of the sweep counts too. A peak run that starts at the first
+    sweep point is not reported (the VI's run flag starts FALSE for peaks, TRUE for valleys):
+    with it, the same-index pairing below matches the operating point LabVIEW left on all 8
+    lanes of P172262504894; without it, 6 lanes would have no pair.
+    """
+    if not data:
+        return [], []
+    mean = sum(data) / len(data)
+    amps, locs, run = [], [], []
+    for i, v in enumerate(data):
+        if (v <= mean) if valleys else (v >= mean):
+            run.append(i)
+        if run and (run[-1] != i or i == len(data) - 1):
+            if valleys or run[0] > 0:
+                best = (min if valleys else max)(run, key=data.__getitem__)
+                amps.append(data[best])
+                locs.append(best)
+            run = []
+    return amps, locs
+
+
+def peak_valley(txmon: list, min_valley_index: int = MIN_VALLEY_INDEX) -> tuple[int, int]:
+    """(peak index, valley index) of the edge 800G SIP Tx MPD Monitor.vi V6.8 uses.
+
+    Peak Search gives the peaks and the valleys; peak k is paired with valley k. A pair is
+    kept when peak index - valley index > 1 (the peak comes after the valley: a rising edge),
+    valley index >= min_valley_index (AWS 5) and peak index < (Vtops_Max - Vtops_Min) / step
+    (not the last sweep point). Of the kept pairs, AWS (the default case) takes the one with
+    the lowest valley (Array Max & Min, min index, of the valley amplitudes).
     """
     if not txmon:
         raise ValueError("empty sweep")
-    n, top, bottom = len(txmon), max(txmon), min(txmon)
-    dark = bottom + 0.1 * (top - bottom)       # a real valley, not the slope at the sweep start
-    # valleys: runs of dark points (robust to noise), each at its darkest point
-    runs, start = [], None
-    for i, v in enumerate(txmon + [dark + 1]):
-        if v <= dark and start is None:
-            start = i
-        elif v > dark and start is not None:
-            runs.append((start, i))
-            start = None
-    for k, (a, b) in enumerate(runs):
-        valley = min(range(a, b), key=txmon.__getitem__)
-        if valley < MIN_VALLEY_INDEX:
-            continue
-        end = runs[k + 1][0] if k + 1 < len(runs) else n
-        if valley + 1 >= end:
-            continue
-        peak = max(range(valley + 1, end), key=txmon.__getitem__)
-        if txmon[peak] >= PEAK_MIN_OF_MAX * top:
-            return peak, valley
-    raise ValueError("no rising edge (valley followed by a full peak) in the sweep")
+    p_amp, p_loc = peak_search(txmon, valleys=False)
+    v_amp, v_loc = peak_search(txmon, valleys=True)
+    last = len(txmon) - 1
+    kept = [k for k in range(min(len(p_loc), len(v_loc)))
+            if p_loc[k] - v_loc[k] > 1 and v_loc[k] >= min_valley_index and p_loc[k] < last]
+    if not kept:
+        raise ValueError(f"no rising edge: Peak Search peaks at {p_loc}, valleys at {v_loc} "
+                         f"give no valley-then-peak pair")
+    k = min(kept, key=lambda j: v_amp[j])
+    return p_loc[k], v_loc[k]
 
 
 def level_for_fraction(fraction: float, peak: float, valley: float, mode: str) -> float:
@@ -90,11 +104,18 @@ def voltage_at_level(volts: list, txmon: list, level: float) -> float:
 
 
 def operating_points(volts: list, txmon: list, fractions: list, mode: str) -> dict[float, float]:
-    """Vtops for each operating-point fraction of one lane."""
+    """Vtops for each operating-point fraction of one lane.
+
+    MPD Monitor.vi V6.8: when the second and third points (3.5 dB and 3.0 dB) land on the same
+    sweep step, the second is moved one step lower, so Tops_Mid lies between two steps.
+    """
     i_peak, i_valley = peak_valley(txmon)
     peak, valley = txmon[i_peak], txmon[i_valley]
-    return {f: voltage_at_level(volts, txmon, level_for_fraction(f, peak, valley, mode))
-            for f in fractions}
+    points = {f: voltage_at_level(volts, txmon, level_for_fraction(f, peak, valley, mode))
+              for f in fractions}
+    if len(fractions) >= 3 and len(volts) >= 2 and points[fractions[1]] == points[fractions[2]]:
+        points[fractions[1]] = round(points[fractions[2]] - (volts[1] - volts[0]), 6)
+    return points
 
 
 def tops_mid(points: dict[float, float], mid_from: list) -> float:

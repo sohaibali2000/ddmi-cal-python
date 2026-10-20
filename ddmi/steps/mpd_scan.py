@@ -56,13 +56,13 @@ def _sweep(ctx: RunContext, cfg: dict):
     module = ctx.module
     lanes = len(ctx.channels)
 
-    # 800G SIP Tx MPD Monitor.vi V6.8, first frame: both loops off, every lane at 1.0 V,
-    # tops_off 0, 1 s after each pair of writes.
-    module.write_value("W_TOPPID", "toppid_off")
-    module.write("Vtops", [cfg["start_vtops"]] * lanes)
-    ctx.sleep(cfg["pre_scan_wait_s"])
-    module.write("tops_off", [0.0] * lanes)
+    # 800G SIP Tx MPD Monitor.vi V6.8, frame 0 (error-wire order): bias loop off, TOPS loop
+    # off, 1 s; every lane's Vtops 1.0 V and tops_off 0, 1 s.
     module.write_value("W_IBiasPID", "ibiaspid_off")
+    module.write_value("W_TOPPID", "toppid_off")
+    ctx.sleep(cfg["pre_scan_wait_s"])
+    module.write("Vtops", [cfg["start_vtops"]] * lanes)
+    module.write("tops_off", [0.0] * lanes)
     ctx.sleep(cfg["pre_scan_wait_s"])
     volts = tops.sweep_points(cfg["vtops_start"], cfg["vtops_stop"], cfg["vtops_step"])
     ctx.log(f"Scan_MPD: TOPS and bias loops off, sweep Vtops {volts[0]} -> {volts[-1]} V "
