@@ -347,9 +347,9 @@ laser but have their own TXMON, so all 8 lanes get their own fit.</p>
 <div class="ok"><b>Aligned 2026-10-19.</b> The fit now uses the unrounded linear power (it was rounded to an integer). The restore order is now W_IBiasPID, W_IBias,
 W_Reset (Python wrote the bias first). Tops_setpoint is now recorded from the register read at the end, as V6.8 does. Bias points, waits, fit, write layout, check and
 the one re-run already matched.</div>
-<div class="note"><b>Open: the IBiasPID value.</b> In sequence 1, V6.8 passes the constant <b>16430</b> (0x402E; MPO-DR8: 16392) to W_IBiasPID. IIC.vi converts it and writes
-one byte at E9h:D0h. Which byte reaches the module cannot be told from the copy, and a module finished by the LabVIEW station reads <b>15</b> there. Python writes back the
-value read before the run (15). This should be checked by reading E9h:D0h right after a LabVIEW TX cal, before ShowPF.</div>
+<div class="ok"><b>Closed 2026-10-20: the IBiasPID value.</b> In sequence 1, V6.8 passes a 1-element DBL array constant to W_IBiasPID:
+<b>15.0</b> for LC-2*FR4 (stored as 402E000000000000), 3.0 for MPO-DR8. The 16430 (0x402E) and 16392 (0x4008) read earlier were only the first 2 bytes of
+those numbers. V6.8 writes 15, which is what a LabVIEW-finished module reads at E9h:D0h. Python writes back the value read before the run (15), so both match.</div>
 <div class="diff"><b>V6.8 vs Python</b>
 <ul>
   <li><span class="tag py">PY</span> If TXMON hardly moves between 60 and 180 mA (&lt; 20 %), the fit would be noise. That lane keeps its old calibration and fails.</li>
@@ -431,7 +431,7 @@ Please read "BERT Time" on the production DDMI Cal station and set <code>rx_cal.
       The production CSV still names the column "dVcc(%)".</li>
 </ol>
 <h3>Retry (Item_Test.vi "DDMI_VCC")</h3>
-<p>Cal + Check run again only when <b>|dVcc| &ge; 1.0</b> (V for AWS), at most twice in all, 50 ms apart. The slope and the dVcc limit are <b>not</b> part of the retry;
+<p>Cal + Check run again only when <b>|dVcc| &gt; 1.0</b> (V for AWS; the loop stops on |dVcc| &le; 1.0 or after the second run), at most twice in all, 50 ms apart. The slope and the dVcc limit are <b>not</b> part of the retry;
 they are judged at the end (ShowPF) like every other item.</p>
 <h3>Reference voltage (I2C Read Vcc.vi)</h3>
 <p>Since 2025-10-10, V6.8 reads the module voltage through the USB-ISS adapter's ADC behind the 3.3 V divider: init <code>5A 02 60 0F</code>, set pins <code>0x63</code>,
@@ -440,7 +440,7 @@ they are judged at the end (ShowPF) like every other item.</p>
 <h3>Limits</h3>
 <p>I2C_Vcc 3.234&ndash;3.366 V, dVcc <b>&plusmn;0.033 V</b>, Vcc_Slope <b>15&ndash;30</b>.</p>
 <div class="ok"><b>Aligned 2026-10-19.</b> Added the wait after clearing VccCal and after the check's adjust. The check now reads the module voltage again after R_DVCC
-(it used the adjust's last reading). The re-run now follows V6.8 (|dVcc| &ge; 1.0); before, Python re-ran on any Vcc_Slope or dVcc limit failure.
+(it used the adjust's last reading). The re-run now follows V6.8 (|dVcc| &gt; 1.0; strict since 2026-10-20); before, Python re-ran on any Vcc_Slope or dVcc limit failure.
 Order, points, waits, fit input and the lock/unlock registers already matched.</div>
 <div class="diff"><b>V6.8 vs Python</b>
 <ul>
@@ -643,6 +643,9 @@ and calibration floats are little-endian <span class="tag hw">HW</span>. All reg
 DSP commands. IIC.vi writes W_Debug_AWS = <b>63</b> (not 1) and W_Daul_AWS = <b>64</b> (not 5), and W_Daul_AWS / W_Mission_AWS each write a second byte,
 <b>CFh:80h = 63</b>, right after CFh:86h. Python now writes the same. The ShowPF check (CFh:86h = 0, CFh:81h = 0) was already right. Other IIC.vi details: the
 Temp Off Func commands use password 'AOIW' and all other commands 83 4A 2D 4C (Python: 'AOIW' to read, 83 4A 2D 4C to write; works on hardware).</div>
+<div class="ok"><b>Confirmed on hardware 2026-10-19</b> (commit 0da01aa, <code>regcheck</code> on P172262504894, finished by the LabVIEW V6.8 station):
+TempOffFunc, TestMode, DSP TestMode, DSP OperatingMode, AWS_Test_Mode, Bias_setpoint RT/HT/LT, W_IBiasPID and TOPPID (tag HW in <code>registers_aws.yaml</code>).
+Still decoded from IIC.vi only (tag CODE): DSP command CFh:80h, Vtops, tops_off and tops_room.</div>
 
 <!-- ===================================================================== 15 -->
 <h2>15. Units and formulas</h2>
@@ -675,7 +678,7 @@ interpolated) and the two-point linear fit all match the Python code. The fit in
 <tr><td>2</td><td>Tx Loss on this bench</td><td>5, 11</td><td>Measure with the golden sample on this bench's fibres</td></tr>
 <tr><td>3</td><td>Production value of "ATT Delay(s)" ("BERT Time"); V6.8 waits it + 2 s per RX pair</td><td>6</td><td>Read it on the production station, set <code>rx_cal.att_delay_s</code></td></tr>
 <tr><td>4</td><td>Sweep step wait 0.3 s vs 50 ms</td><td>2</td><td>Kept: required by this station's TXMON refresh rate</td></tr>
-<tr><td>5</td><td>W_IBiasPID value after the TX cal: V6.8 constant 16430 vs 15 read on a LabVIEW-finished module</td><td>5</td><td>Read E9h:D0h right after a LabVIEW TX cal</td></tr>
+<tr><td>5</td><td>W_IBiasPID value after the TX cal <span class="tag hw">CLOSED</span>: V6.8 writes 15 (the 16430 was the first 2 bytes of the DBL 15.0)</td><td>5</td><td>&ndash;</td></tr>
 </table>
 
 </body>

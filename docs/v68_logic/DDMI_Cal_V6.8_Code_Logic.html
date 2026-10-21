@@ -251,7 +251,7 @@ The module reports y = slope &times; raw + offset itself. Units are linear: powe
 <tr><td>3</td><td>Read the true power of all 8 lanes and TXMON</td><td>meter + Tx Loss[ch]; R_TXMON</td><td>&ndash;</td></tr>
 <tr><td>4</td><td>Bias 180 mA; repeat step 3</td><td>W_IBias</td><td>2 s</td></tr>
 <tr><td>5</td><td>Per lane: y = 10^(dBm/10) &times; 10000 (not rounded), x = TXMON &rarr; slope, offset; write 8 pairs</td><td>W_DTXPCal: ECh (CH1&ndash;4), EDh (CH5&ndash;8), C0h</td><td>&ndash;</td></tr>
-<tr><td>6</td><td>Loop on, bias back to the kept value, reset</td><td>W_IBiasPID (constant 16430 for LC-2*FR4, converted by IIC.vi; a LabVIEW-finished module reads 15); W_IBias; W_Reset</td><td>10 s</td></tr>
+<tr><td>6</td><td>Loop on, bias back to the kept value, reset</td><td>W_IBiasPID = 15 for LC-2*FR4 (3 for MPO-DR8), a 1-element DBL array constant; a LabVIEW-finished module reads 15; W_IBias; W_Reset</td><td>10 s</td></tr>
 </table>
 <p>Bias points by product: LC-2*FR4 AWS <b>60 / 180 mA</b>; LC-2*FR4 other 70 / 130; MPO-DR8 100 / 200, AWS 100 / 300, Acacia 80 / 120.
 Lanes n and n+4 share a laser but each has its own TXMON, so all 8 lanes get their own slope and offset.</p>
@@ -280,7 +280,7 @@ The AWS bias-setpoint adjustment inside DDMI_Adjust_TX is commented out in V6.8.
 <tr><td>6</td><td>Lock</td><td>W_Nomal_AWS = 0 (CFh:81h), W_Mission_AWS = 0 (CFh:86h) then CFh:80h = 63</td><td>&ndash;</td></tr>
 </table>
 <p>Check: Auto Adjust to 3.3 V, wait (unwired Time Delay, 1 s default), read R_DVCC 00h:10h (U16 &times; 100 &micro;V), read the module voltage again,
-dVcc = real &minus; DDMI in volts (AWS), limit &plusmn;0.033 V. Item_Test.vi re-runs Cal + Check only when |dVcc| &ge; 1.0. After clearing VccCal there is
+dVcc = real &minus; DDMI in volts (AWS), limit &plusmn;0.033 V. Item_Test.vi re-runs Cal + Check only when |dVcc| &gt; 1.0. After clearing VccCal there is
 another unwired Time Delay (1 s default).
 Since 2025-10-10 the station reads the module voltage through an I&sup2;C ADC behind the 3.3 V divider (I2C Read Vcc.vi, scale 2).</p>
 

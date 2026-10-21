@@ -59,8 +59,9 @@ def tx_cal(ctx: RunContext) -> None:
         ctx.log("W_DTXPCal written (8 slope/offset pairs)")
     finally:
         # DDMI_Cal.vi "Txp" / Cal, sequence 1: W_IBiasPID, W_IBias (the saved bias), W_Reset, 10 s.
-        # V6.8 writes 16430 to W_IBiasPID here for LC-2*FR4; a module the LabVIEW station
-        # finished reads 15 there, so the value read before the run is written back.
+        # V6.8 writes 15 to W_IBiasPID here for LC-2*FR4 (a 1-element DBL array constant; its
+        # first 2 bytes, 0x402E = 16430, were once misread as the value). The value read before
+        # the run is written back, which is 15 on a module the LabVIEW station finished.
         module.write("W_IBiasPID", ctx.pre_run("W_IBiasPID", "ibiaspid_restore"))
         module.write("IBias", saved_bias)
         module.write_value("W_Reset", "reset")

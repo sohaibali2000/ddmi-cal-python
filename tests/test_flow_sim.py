@@ -544,8 +544,8 @@ def test_rx_pairs_wait_att_delay_plus_2_s(station_cfg, product):
     assert rx_cal._pairs(type("C", (), {"channels": list(range(1, 9))})()) == [(1, 5), (2, 6), (3, 7), (4, 8)]
 
 
-def test_vcc_is_rerun_only_for_a_dvcc_of_1v_or_more(station_cfg, product):
-    """Item_Test.vi V6.8 DDMI_VCC: re-run when |dVcc| >= 1.0 (V for AWS); a slope or dVcc
+def test_vcc_is_rerun_only_for_a_dvcc_over_1v(station_cfg, product):
+    """Item_Test.vi V6.8 DDMI_VCC: re-run when |dVcc| > 1.0 (V for AWS); a slope or dVcc
     limit failure alone is judged at the end, not re-run."""
     product["limits"]["vcc_slope"] = [0.1, 1]           # every slope fails its limit
     record = run(station_cfg, product)

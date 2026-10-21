@@ -69,10 +69,11 @@ def vcc_check(ctx: RunContext) -> None:
 
 
 def needs_rerun(ctx: RunContext) -> list[str]:
-    """Item_Test.vi V6.8 "DDMI_VCC": Cal + Check run again only when |dVcc| >= 1.0 (V for
-    AWS). The slope and the dVcc limit are judged at the end, not here."""
+    """Item_Test.vi V6.8 "DDMI_VCC": Cal + Check run again only when |dVcc| > 1.0 (V for
+    AWS; the loop stops on |dVcc| <= 1.0). The slope and the dVcc limit are judged at the
+    end, not here."""
     d = ctx.results.value("dVcc(V)", 0)
-    return [f"|dVcc| {abs(d):.3f} V >= 1.0"] if d is not None and abs(d) >= RERUN_DVCC_V else []
+    return [f"|dVcc| {abs(d):.3f} V > 1.0"] if d is not None and abs(d) > RERUN_DVCC_V else []
 
 
 RERUN_DVCC_V = 1.0
