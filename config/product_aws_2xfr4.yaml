@@ -105,9 +105,10 @@ rx_cal:
   # Attenuator wavelength per lane (the AT4308 is calibrated at 1270/1290/1310/1330).
   wavelengths_nm: [1270, 1290, 1310, 1330, 1270, 1290, 1310, 1330]
   # Wait after setting a lane pair = att_delay_s + 2 s (DDMI_Cal.vi / Item_Test.vi V6.8). att_delay_s
-  # is the station setting "ATT Delay(s)" (front-panel field "BERT Time", system_Data.ini); its
-  # production value is not in the V6.8 copy - 0 gives V6.8's minimum of 2 s.
-  att_delay_s: 0.0
+  # is the Set-tab field "ATT Delay(s)". 3 is the value saved in 800G_TRx_Test.vi; at start-up V6.8
+  # replaces it from system_Data.ini (key Device), which is not in our copy: confirm on the
+  # production station.
+  att_delay_s: 3.0
 
 wait_temp:
   # V6.8 skips Wait_Temp at the DDMI Cal station (no temperature controller; the Wait_Temp

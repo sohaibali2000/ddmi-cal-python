@@ -367,7 +367,7 @@ It must be measured on this bench's own fibres with the golden sample (section 1
   <div>V6.8</div><div><code>Item_Test.vi</code> "DDMI_RXP" (retry loop + check) &rarr; <code>DDMI_Cal.vi</code> "Rxp" / "Cal" (its "Check" case is empty);
       <code>CH RxP To Att.vi</code>, <code>Read ATT Table_400G.vi</code>, <code>OVA Set Wavelength.vi</code>, <code>OVA Set Chs Att.vi</code>, <code>Calulate_Curve Fit Coefficient.vi</code></div>
   <div>Python</div><div><code>ddmi/steps/rx_cal.py</code>: <code>rx_cal</code>, <code>rx_check</code>, <code>_set_power</code>, <code>_pairs</code>, <code>_pair_wait_s</code>; tables in <code>calc/rxtable.py</code></div>
-  <div>Config</div><div><code>rx_cal:</code> points_dbm [&minus;2, &minus;10], check_dbm &minus;6, wavelengths_nm, att_delay_s 0.0</div>
+  <div>Config</div><div><code>rx_cal:</code> points_dbm [&minus;2, &minus;10], check_dbm &minus;6, wavelengths_nm, att_delay_s 3</div>
   <div>Results</div><div>RxP1, DD_RxP1, dRxP1, Rxp_Offset, Rxp_Slope</div>
 </div>
 <p>Both the calibration and the check use the enabled "2XFR4 two CH Parallel" subdiagram (the one-lane-at-a-time variant is in the disabled frame of a Diagram Disable
@@ -378,7 +378,7 @@ structure). Lane pairs (1,5), (2,6), (3,7), (4,8): lanes 1&ndash;4 are on RX fib
 <tr><td>1</td><td>For &minus;2 dBm, then &minus;10 dBm (<code>RxP_Cal</code>), and for each pair <i>i</i> = 0..3:</td><td></td><td></td></tr>
 <tr><td>2</td><td>Table lookup for lane <i>i</i> and lane <i>i</i>+4 (CH RxP To Att &rarr; Read ATT Table_400G, linear interpolation)</td><td><code>CHn_Rx_calibration.txt</code></td><td>&ndash;</td></tr>
 <tr><td>3</td><td>Set Wavelength for both lanes; one Set ATT for both attenuator channels ("two CH Parallel")</td><td>AT4208 / OVA</td><td>0.25 s per Set (driver)</td></tr>
-<tr><td>4</td><td>Wait <b>"ATT Delay(s)" + 2 s</b></td><td>station setting</td><td><b>&ge; 2 s</b></td></tr>
+<tr><td>4</td><td>Wait <b>"ATT Delay(s)" + 2 s</b></td><td>station setting</td><td><b>5 s</b> with the saved 3</td></tr>
 <tr><td>5</td><td>Read RSSI; keep lanes <i>i</i> and <i>i</i>+4</td><td>R_RSSI F3h:A6h, 8 &times; U16 LE</td><td>500 ms page switch (IIC.vi)</td></tr>
 <tr><td>6</td><td>Per lane: y = 10^(dBm/10) &times; 10000 (<b>not rounded</b>: 6309.57 and 1000), x = RSSI &rarr; linear fit &rarr; slope, offset; write per lane</td><td>W_DRXPCal: ECh / EDh, offsets 90h, slopes A0h</td><td>&ndash;</td></tr>
 </table>
@@ -391,9 +391,9 @@ structure). Lane pairs (1,5), (2,6), (3,7), (4,8): lanes 1&ndash;4 are on RX fib
 </ol>
 <div class="note">Lanes on one RX fibre share an attenuator channel, so each lane's own setting only holds while its pair is being read. That is why the check
 also runs pair by pair.</div>
-<div class="note"><b>"ATT Delay(s)"</b> is the station setting shown on the front panel as <b>"BERT Time"</b> (stored with the other station values in
-<code>system_Data.ini</code>). The copy of V6.8 here has only the [Program] section of that file, so the production value is unknown. The wait is at least 2 s.
-Please read "BERT Time" on the production DDMI Cal station and set <code>rx_cal.att_delay_s</code> to it.</div>
+<div class="note"><b>"ATT Delay(s)"</b> is a field on the Set tab of 800G_TRx_Test.vi (whole seconds). The value saved in the VI is <b>3</b>, so the V6.8 wait is 5 s per pair, and
+Python uses 3. At start-up V6.8 replaces it from <code>system_Data.ini</code> (key Device), which is not in our copy, and the saved panel is not this station's setup (MPO-DR8, EXFO).
+Please confirm the value on the production DDMI Cal station's Set tab.</div>
 <div class="ok"><b>Aligned 2026-10-19.</b> The wait after each pair is now att_delay_s + 2 s (it was a flat 1.0 s), and the fit uses the unrounded linear power
 (it was rounded to an integer). Pairs, order, check point, limits and the one re-run already matched.</div>
 <div class="diff"><b>V6.8 vs Python</b>
@@ -590,7 +590,7 @@ calibration by the same error. Measure both on this bench, with its own fibres a
 <tr><td>3</td><td>After the default bias write</td><td>2 s</td><td>2 s</td></tr>
 <tr><td>4</td><td>Scan_Disable: read after disable / after enable / final read / after final enable</td><td>0 s / 0.01 s / 0.1 s / 1 s</td><td>settle poll 0.5 s (1&ndash;8 s) / 0.01 s / settle poll / 1 s</td></tr>
 <tr><td>5</td><td>Per bias point / after W_Reset</td><td>2 s / 10 s</td><td>2 s / 10 s</td></tr>
-<tr><td>6</td><td>After setting a lane pair (cal &times; 8, check &times; 4 per run)</td><td>"ATT Delay(s)" + 2 s (&ge; 2 s)</td><td>att_delay_s + 2 s (2 s)</td></tr>
+<tr><td>6</td><td>After setting a lane pair (cal &times; 8, check &times; 4 per run)</td><td>"ATT Delay(s)" + 2 s (5 s with the saved 3)</td><td>att_delay_s + 2 s (5 s)</td></tr>
 <tr><td>7</td><td>VCC: after clearing VccCal / after each adjust point / after the check adjust</td><td>1 s* / 2 s / 1 s* (*unwired, default)</td><td>1 s / 2 s / 1 s</td></tr>
 <tr><td>5&ndash;7</td><td>Before re-running a failed item</td><td>50 ms</td><td>50 ms</td></tr>
 <tr><td>9</td><td>ShowPF: Temp Off Func write &rarr; read (&le; 3 tries) / TestMode + W_Reset &rarr; read (&le; 3 tries)</td><td>2 s / 10 s per try</td><td>2 s / 10 s per try</td></tr>
@@ -600,7 +600,7 @@ calibration by the same error. Measure both on this bench, with its own fibres a
 </table>
 <div class="ok"><b>Checked 2026-10-20</b> row by row against the V6.8 VIs and the Python code. Added in this check: IIC.vi's page-select waits (500 ms / 75 ms per
 command, the largest part of V6.8's run time), 0.25 s after each attenuator Set, and 50 ms before a re-run. Two differences remain on purpose: the 0.3 s sweep step and the
-Scan_Disable settle poll (both needed on this station). Three V6.8 waits depend on values not in the copy: "ATT Delay(s)" (BERT Time) and the two unwired VCC Time Delays (1 s assumed).</div>
+Scan_Disable settle poll (both needed on this station). Three V6.8 waits depend on values not in the copy: "ATT Delay(s)" (3 saved in the VI, production value to confirm) and the two unwired VCC Time Delays (1 s assumed).</div>
 
 <!-- ===================================================================== 14 -->
 <h2 class="pb">14. Register master list (AWS)</h2>
@@ -676,7 +676,7 @@ interpolated) and the two-point linear fit all match the Python code. The fit in
 <tr><th>#</th><th>Item</th><th>Section</th><th>Next action</th></tr>
 <tr><td>1</td><td>Third comparison in the MPD pairing AND gate <span class="tag warn">OPEN</span>; CH6 of P172262504894 uses a different edge than Python</td><td>2</td><td>LabVIEW correlation run on a fresh module (DDMI only), compare edge choice per lane</td></tr>
 <tr><td>2</td><td>Tx Loss on this bench</td><td>5, 11</td><td>Measure with the golden sample on this bench's fibres</td></tr>
-<tr><td>3</td><td>Production value of "ATT Delay(s)" ("BERT Time"); V6.8 waits it + 2 s per RX pair</td><td>6</td><td>Read it on the production station, set <code>rx_cal.att_delay_s</code></td></tr>
+<tr><td>3</td><td>Production value of "ATT Delay(s)" (Python uses the 3 saved in the VI); V6.8 waits it + 2 s per RX pair</td><td>6, 11</td><td>Read the Set tab on the production station; change <code>rx_cal.att_delay_s</code> if it differs</td></tr>
 <tr><td>4</td><td>Sweep step wait 0.3 s vs 50 ms</td><td>2</td><td>Kept: required by this station's TXMON refresh rate</td></tr>
 <tr><td>5</td><td>W_IBiasPID value after the TX cal <span class="tag hw">CLOSED</span>: V6.8 writes 15 (the 16430 was the first 2 bytes of the DBL 15.0)</td><td>5</td><td>&ndash;</td></tr>
 </table>

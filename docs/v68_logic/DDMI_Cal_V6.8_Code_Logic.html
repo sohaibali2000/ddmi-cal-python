@@ -264,7 +264,7 @@ The AWS bias-setpoint adjustment inside DDMI_Adjust_TX is commented out in V6.8.
   <li>For &minus;2 dBm and then &minus;10 dBm, look up each lane's attenuation in its RX table (<code>CH RxP To Att.vi</code>, linear interpolation).</li>
   <li>2&times;FR4 works in lane pairs (1,5), (2,6), (3,7), (4,8) ("2XFR4 two CH Parallel"): set the pair's wavelength and attenuation on both attenuator channels, read R_RSSI F3h:A6h (8 &times; U16, little-endian), keep the two active lanes.</li>
   <li>Per lane: y = &minus;2 dBm &rarr; 6310, &minus;10 dBm &rarr; 1000; x = RSSI &rarr; slope, offset; write W_DRXPCal (ECh/EDh, 90h).</li>
-  <li>Wait after each pair: "ATT Delay(s)" ("BERT Time" station setting) + 2 s. Fit input y = 10^(dBm/10) &times; 10000, not rounded.</li>
+  <li>Wait after each pair: "ATT Delay(s)" (Set-tab field, 3 saved in the VI) + 2 s. Fit input y = 10^(dBm/10) &times; 10000, not rounded.</li>
   <li>Check (Item_Test.vi DDMI_RXP; DDMI_Cal's Rxp "Check" case is empty): &minus;6 dBm in the same pairs, read R_DRXP 11h:BAh, error = DDMI &minus; (&minus;6),
       |error| &lt; 0.5 dB and RX slope 5&ndash;30, else Cal + Check once more.</li>
 </ol>
@@ -314,7 +314,7 @@ Since 2025-10-10 the station reads the module voltage through an I&sup2;C ADC be
 <tr><td>Adjust Power</td><td>2 s after the default write</td><td>1</td><td>2 s</td></tr>
 <tr><td>Scan_Disable</td><td>0 / 0.01 s per step; 0.1 s final read; 1 s after enable</td><td>8 (+5)</td><td>&lt; 2 s fixed</td></tr>
 <tr><td>TX cal</td><td>2 s per bias point; 10 s after W_Reset</td><td>2 + 1</td><td>14 s</td></tr>
-<tr><td>RX cal</td><td>"ATT Delay(s)" ("BERT Time") + 2 s after each lane pair, plus 0.25 s per AT4208 Set</td><td>4 pairs &times; 3 points</td><td>&ge; 24 s</td></tr>
+<tr><td>RX cal</td><td>"ATT Delay(s)" (3 saved in the VI) + 2 s after each lane pair, plus 0.25 s per AT4208 Set</td><td>4 pairs &times; 3 points</td><td>about 60 s with the saved 3</td></tr>
 <tr><td>VCC cal</td><td>2 s per point (Auto Adjust Vcc)</td><td>2 + check</td><td>4&ndash;8 s</td></tr>
 <tr><td>DDMI items</td><td>50 ms between a failed check and the re-run</td><td>0&ndash;1</td><td>&ndash;</td></tr>
 <tr><td>ShowPF</td><td>2 s per Temp Off Func try; 10 s per TestMode/reset try</td><td>1&ndash;3 each</td><td>about 12 s</td></tr>
@@ -441,7 +441,7 @@ AWS_Test_Mode 0, Bias_setpoint RT = HT = LT = 280/280/410/450, IBiasPID 15, TOPP
 <table>
 <tr><th>#</th><th>Item</th><th>Why it matters</th></tr>
 <tr><td>1</td><td><s>Which rising edge is used</s>: <b>resolved</b> (5.3): index distance &gt; 1, valley index &ge; 5, peak not on the last point, deepest valley. Matches 6 of 8 lanes; the other 2 have equally deep valleys</td><td>Operating point, Tops_setpoint, tops_off</td></tr>
-<tr><td>2</td><td>RX wait: <b>decoded</b>, "ATT Delay(s)" + 2 s per lane pair (6.2); the production value of "ATT Delay(s)" ("BERT Time") is not in the V6.8 copy</td><td>RX calibration timing</td></tr>
+<tr><td>2</td><td>RX wait: <b>decoded</b>, "ATT Delay(s)" + 2 s per lane pair (6.2); the VI holds 3; the production value comes from system_Data.ini (key Device), not in the V6.8 copy</td><td>RX calibration timing</td></tr>
 <tr><td>3</td><td>Exact pass condition of the inner scan loop (frame 5 read-back / start-room check)</td><td>When a re-scan happens</td></tr>
 </table>
 
@@ -498,7 +498,7 @@ operating point on 7 of 8 lanes of P172262504894 (CH6 differs). Python: <code>MI
     <code>GET AnalogData 0x65</code>, 2 bytes back. V = (b0&middot;256 + b1) &times; Vref (3.3/5 V) &divide; 1024 &times; Scale</td><td>short delay between commands (subTimeDelay)</td></tr>
 </table>
 <div class="ok">RX wait: the AT4208 driver waits 0.25 s after each Set, and DDMI_Cal.vi / Item_Test.vi then wait "ATT Delay(s)" + 2 s before reading
-RSSI / DDMI RX power (section 6.2). "ATT Delay(s)" is the station setting "BERT Time".</div>
+RSSI / DDMI RX power (section 6.2). "ATT Delay(s)" is a Set-tab field (3 saved in the VI).</div>
 
 <h3>15.5 RX table lookup (CH RxP To Att.vi, Read ATT Table_400G.vi, Calulate_Curve Fit Coefficient.vi)</h3>
 <ol>
