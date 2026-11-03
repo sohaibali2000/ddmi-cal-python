@@ -550,7 +550,7 @@ and the exact <code>mes_data</code> string V6.8 would upload. Save_Data is tried
 <tr><th>Tool</th><th>V6.8</th><th>Python</th></tr>
 <tr><td><b>Tx Loss Cal</b> (not aligned to V6.8: this bench follows the production Tx Loss tool)</td><td>Golden sample: Tx Loss[ch] = true power &minus; station reading. Saved as one tab-separated line CH1&rarr;CH8 in
     <code>system_Data.ini</code> [Data] <code>Tx Loss</code>. Warning above 3.5 dB (2&times;FR4).</td>
-    <td>Tx Loss tool in the UI. Waits for the golden sample's temperature to settle (a reading every 15 s, 3 in a row changing by &lt; 0.1 &deg;C, max 30 min).</td></tr>
+    <td>Tx Loss tool in the UI. Waits for the golden sample's temperature to settle (a reading every 15 s, 3 in a row changing by &lt; 0.1 &deg;C, max 5 min).</td></tr>
 <tr><td><b>Rx Loss Cal</b> (RX tables)</td><td><code>0-30ATT.vi</code> (prompts "Connect the DUT Rx1 / Rx2 input signal to the optical power meter!",
     file <code>CHn_Rx_calibration.txt</code>) &rarr; <code>Att Calibration.vi</code>: all 8 attenuator channels at 40 dB; the lane's channel stepped Start 0 &rarr; Stop 20 in 1 dB steps,
     a 0 replaced by 1 (so 1, 1, 2 &hellip; 20: 21 points); wait <b>"ATT Delay(s)" + 0.5 s</b>; read the meter; row = attenuation, &minus;power (2 decimals); at the end every

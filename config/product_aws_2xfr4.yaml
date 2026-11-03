@@ -86,7 +86,7 @@ tx_loss:
   interval_s: 15
   threshold_c: 0.1
   consecutive: 3
-  timeout_s: 1800
+  timeout_s: 300                   # give up after 5 min (usually done in 45 s - a few min)
 
 showpf:
   # labview: 800G_TRx_Test.vi V6.8 ShowPF for AWS DDMI CAL - Temp Off Func 59 (FEh 0x95),
