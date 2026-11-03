@@ -1,6 +1,8 @@
-"""Loss tab: Tx Loss calibration laid out and stepped like the production DDMI TX Loss tool
-(Power Meter, Module Temperature, Golden Power, table, Read / Calculate, Save to system.ini),
-plus this program's slot choice and RX attenuation table."""
+"""Loss tab with two sub-tabs: Tx Loss and Rx Loss.
+
+Tx Loss is laid out and stepped like the production DDMI TX Loss tool (Power Meter, Module
+Temperature, Golden Power, table, Read / Calculate, Save to system.ini), plus a slot choice.
+Rx Loss (the RX attenuation table) is in rx_loss_page.py."""
 from datetime import datetime
 from pathlib import Path
 
@@ -8,23 +10,42 @@ from PyQt5.QtCore import Qt, pyqtSlot
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-    QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget,
+    QMessageBox, QPushButton, QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from .. import params
 from ..state import Engine
 from ..widgets import CONSOLE_STYLE
 from ..workers import CallWorker, StabilizeWorker
-from .rx_att_table_popup import RxAttTablePopup
+from .rx_loss_page import RxLossPage
 from ... import stationfiles
 from ...station import acquire_power_meter, build_station, is_sim
 from ...tools.tx_loss import fetch_golden, read_golden_temperature
 
-COLUMNS = ["Channel", "Wavelength (nm)", "Golden (dBm)", "Measured (dBm)", "TX Loss (dB)", "RX table (points)"]
-COL_GOLDEN, COL_MEASURED, COL_LOSS, COL_RX = 2, 3, 4, 5
+COLUMNS = ["Channel", "Wavelength (nm)", "Golden (dBm)", "Measured (dBm)", "TX Loss (dB)"]
+COL_GOLDEN, COL_MEASURED, COL_LOSS = 2, 3, 4
 
 
 class LossPage(QWidget):
+    """The Loss tab: Tx Loss and Rx Loss kept on separate sub-tabs."""
+
+    def __init__(self, engine: Engine):
+        super().__init__()
+        self.tx = TxLossPage(engine)
+        self.rx = RxLossPage(engine)
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self.tx, "Tx Loss")
+        self.tabs.addTab(self.rx, "Rx Loss")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self.tabs)
+
+    def shutdown(self):
+        self.tx.shutdown()
+        self.rx.shutdown()
+
+
+class TxLossPage(QWidget):
     def __init__(self, engine: Engine):
         super().__init__()
         self.engine = engine
@@ -46,9 +67,6 @@ class LossPage(QWidget):
         self.slot.currentIndexChanged.connect(self._on_slot_changed)
         top.addWidget(self.slot)
         top.addStretch(1)
-        self.btn_rx_table = QPushButton("RX Attenuation Table")
-        self.btn_rx_table.clicked.connect(self.on_rx_table_click)
-        top.addWidget(self.btn_rx_table)
         lay.addLayout(top)
 
         # ---- Power Meter
@@ -198,7 +216,6 @@ class LossPage(QWidget):
         saved = self.engine.loss_store.get(slot_id)
         golden, measured = self._golden.get(slot_id, {}), self._measured.get(slot_id, {})
         wavelengths = self.engine.product["tx_power_meter"]["wavelengths_nm"]
-        rx_table = self.engine.rx_tables.load(slot_id)
         for ch in range(1, params.CHANNELS + 1):
             row = ch - 1
             self._cell(row, 0, f"Ch{ch} (DDMI)")
@@ -206,8 +223,6 @@ class LossPage(QWidget):
             self._cell(row, COL_GOLDEN, f"{golden[ch]:.3f}" if ch in golden else "")
             self._cell(row, COL_MEASURED, f"{measured[ch]:.3f}" if ch in measured else "")
             self._loss_cell(row, saved[row] if saved is not None else None)
-            points = len(rx_table.get(ch, []))
-            self._cell(row, COL_RX, str(points) if points else "not calibrated")
 
     # ---- Power Meter ----------------------------------------------------------------------
     def _station_port(self) -> str:
@@ -464,8 +479,4 @@ class LossPage(QWidget):
             return
         self.log(f"Slot-{slot_id} TX Loss saved to {path}: " + ", ".join(f"{v:.3f}" for v in values))
         QMessageBox.information(self, "Save", f"TX Loss saved to:\n{path}")
-        self.refresh_from_state()
-
-    def on_rx_table_click(self):
-        RxAttTablePopup(self._slot_id(), self.engine, parent=self).exec_()
         self.refresh_from_state()
