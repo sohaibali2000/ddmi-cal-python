@@ -66,5 +66,6 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.Yes:
                 event.ignore()
                 return
+        self.page_loss.shutdown()
         self.engine.shutdown()
         event.accept()

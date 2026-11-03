@@ -103,8 +103,7 @@ def _build_real_station(station_cfg: dict, regmap, dry_run: bool, allow_unverifi
         # locked, closed when the last slot releases them.
         from .hw import shared
 
-        meter, release_meter = shared.acquire(f"meter:{station_cfg['power_meter']['resource']}",
-                                              lambda: build_power_meter(station_cfg, log))
+        meter, release_meter = acquire_power_meter(station_cfg, log)
         closers.append(release_meter)
 
         att_cfg = station_cfg["attenuator"]
@@ -133,6 +132,15 @@ def _build_real_station(station_cfg: dict, regmap, dry_run: bool, allow_unverifi
     # No RX input meter on this station yet: the RX table tool says so instead of guessing.
     bench = Bench(power_supply=supply, power_meter=meter, attenuator=attenuator, rx_meter=None)
     return Station(module, bench, closers=closers)
+
+
+def acquire_power_meter(station_cfg: dict, log: Callable[[str], None] = print):
+    """(meter, release) from the shared pool: the same open meter a test run uses, so the
+    Tx Loss tab can hold it while another slot is testing."""
+    from .hw import shared
+
+    return shared.acquire(f"meter:{station_cfg['power_meter']['resource']}",
+                          lambda: build_power_meter(station_cfg, log))
 
 
 def build_power_meter(station_cfg: dict, log: Callable[[str], None] = print):

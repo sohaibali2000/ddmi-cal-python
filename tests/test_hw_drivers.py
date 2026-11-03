@@ -218,3 +218,71 @@ def test_tx_loss_waits_for_temperature_first(station_cfg, product):
     last_temp = max(i for i, e in enumerate(events) if isinstance(e, tuple))
     assert temps[-1][1].startswith("STABLE") and last_temp < first_meter_line
     assert len(rows) == 8
+
+
+def test_stabilization_alone_then_measure_without_waiting(station_cfg, product):
+    """Start Stabilization on its own, then Tx Loss Calibration with the meter already
+    connected: no second temperature wait, and the meter is left open."""
+    from ddmi.tools.tx_loss import calibrate_tx_loss, stabilize_golden_temperature
+
+    samples = []
+    assert stabilize_golden_temperature(station_cfg, product, log=lambda _l: None, on_temp=samples.append)
+    assert samples[-1]["status"].startswith("STABLE")
+
+    sim_meter = build_station(station_cfg, slot=1).bench.power_meter
+    reads, closed = [], []
+
+    class Meter:                      # the connected meter, recording what it returns
+        def configure(self, *args):
+            sim_meter.configure(*args)
+
+        def read_all_dbm(self):
+            reads.append(sim_meter.read_all_dbm())
+            return reads[-1]
+
+        def close(self):
+            closed.append(True)
+
+    temps = []
+    rows = calibrate_tx_loss(station_cfg, product, stabilize=False, meter=Meter(), log=lambda _l: None,
+                             golden_dbm={ch: 2.0 for ch in range(1, 9)}, on_temp=temps.append)
+    assert not temps and not closed and len(reads) == 1
+    assert [row["loss_db"] for row in rows] == [round(2.0 - p, 3) for p in reads[0]]
+
+
+def test_stabilization_stop_returns_false(station_cfg, product):
+    import threading
+
+    from ddmi.tools.tx_loss import stabilize_golden_temperature
+
+    abort = threading.Event()
+    abort.set()
+    assert not stabilize_golden_temperature(station_cfg, product, log=lambda _l: None, abort=abort)
+
+
+def test_tx_loss_tab_meter_shared_with_runs(monkeypatch):
+    """Connect on the Tx Loss tab and a test run get the same open meter; it closes only
+    when both have released it."""
+    from ddmi import station as station_mod
+    from ddmi.hw import shared
+
+    opened = []
+
+    class FakeMeter:
+        def close(self):
+            opened.remove(self)
+
+    def fake_build(_cfg, _log=print):
+        meter = FakeMeter()
+        opened.append(meter)
+        return meter
+
+    monkeypatch.setattr(station_mod, "build_power_meter", fake_build)
+    cfg = {"power_meter": {"resource": "usb-sn:TEST-SHARED"}}
+    tab_meter, tab_release = station_mod.acquire_power_meter(cfg)
+    run_meter, run_release = station_mod.acquire_power_meter(cfg)
+    assert len(opened) == 1 and shared.users("meter:usb-sn:TEST-SHARED") == 2
+    run_release()
+    assert len(opened) == 1
+    tab_release()
+    assert not opened

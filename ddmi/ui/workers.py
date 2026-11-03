@@ -8,7 +8,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from ..runner import run_slot
 from ..station import build_station
 from ..tools.rx_table import ATT_SEQUENCE_DB, ATT_STEPS_DB, build_rx_table, point_wait_s
-from ..tools.tx_loss import calibrate_tx_loss
+from ..tools.tx_loss import stabilize_golden_temperature
 
 
 class _Worker(QThread):
@@ -60,23 +60,34 @@ class FlowWorker(_Worker):
         self.done.emit(slot, record)
 
 
-class TxLossWorker(_Worker):
-    temp = pyqtSignal(object)        # one temperature-stabilization sample (dict)
-    done = pyqtSignal(int, object)   # slot, rows (ch, wavelength_nm, golden_dbm, measured_dbm, loss_db) or None
+class CallWorker(QThread):
+    """Runs one instrument call off the UI thread (Connect, Read Power, Read Once, Fetch Golden)."""
+    done = pyqtSignal(bool, object)     # ok, result or error text
 
-    def __init__(self, slot_id: int, station_cfg: dict, product: dict, component_id: str):
-        super().__init__(slot_id, station_cfg, product)
-        self.component_id = component_id
+    def __init__(self, fn):
+        super().__init__()
+        self.fn = fn
 
     def run(self):
-        rows = None
         try:
-            rows = calibrate_tx_loss(self.station_cfg, self.product, slot=self.slot_id,
-                                     component_id=self.component_id, log=self.say,
-                                     on_temp=self.temp.emit, abort=self._abort)
+            self.done.emit(True, self.fn())
+        except Exception as exc:
+            self.done.emit(False, f"{type(exc).__name__}: {exc}")
+
+
+class StabilizeWorker(_Worker):
+    """The golden sample's temperature wait (Start Stabilization)."""
+    temp = pyqtSignal(object)           # one temperature sample (dict)
+    done = pyqtSignal(int, bool)        # slot, stable
+
+    def run(self):
+        stable = False
+        try:
+            stable = stabilize_golden_temperature(self.station_cfg, self.product, slot=self.slot_id,
+                                                  log=self.say, on_temp=self.temp.emit, abort=self._abort)
         except Exception as exc:
             self.say(f"ERROR: {type(exc).__name__}: {exc}")
-        self.done.emit(self.slot_id, rows)
+        self.done.emit(self.slot_id, stable)
 
 
 class RxTableWorker(_Worker):
