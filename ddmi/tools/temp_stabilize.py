@@ -14,7 +14,7 @@ from typing import Callable
 
 
 def wait_for_stable_temperature(read_temp: Callable[[], float], *, interval_s: float = 15.0,
-                                threshold_c: float = 0.1, consecutive: int = 3, timeout_s: float = 300.0,
+                                threshold_c: float = 0.1, consecutive: int = 3, timeout_s: float = 900.0,
                                 log: Callable[[str], None] = print,
                                 on_sample: Callable[[dict], None] = lambda _s: None,
                                 abort: threading.Event | None = None,
